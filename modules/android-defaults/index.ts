@@ -1,5 +1,4 @@
-import { requireNativeModule } from 'expo-modules-core';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 export interface DeviceApp {
   packageName: string;
@@ -13,46 +12,39 @@ export interface RoleStatus {
   currentDefault: string | null;
 }
 
-// Stub for non-Android platforms
-const stub = {
-  getAppsForIntent: async (_action: string, _mimeType?: string, _scheme?: string): Promise<DeviceApp[]> => [],
-  getHandlersForScheme: async (_scheme: string): Promise<DeviceApp[]> => [],
-  requestDefaultRole: async (_role: string): Promise<boolean> => false,
-  checkRole: async (role: string): Promise<RoleStatus> => ({ role, isHeld: false, currentDefault: null }),
-  openDefaultAppsSettings: async (): Promise<void> => {},
-  openAppDefaultSettings: async (_packageName: string): Promise<void> => {},
-};
-
-const AndroidDefaults = Platform.OS === 'android'
-  ? requireNativeModule('AndroidDefaults')
-  : stub;
-
-export function getAppsForIntent(action: string, mimeType?: string, scheme?: string): Promise<DeviceApp[]> {
-  console.log('[AndroidDefaults] getAppsForIntent', { action, mimeType, scheme });
-  return AndroidDefaults.getAppsForIntent(action, mimeType ?? null, scheme ?? null);
+export async function getAppsForIntent(_action: string, _mimeType?: string, _scheme?: string): Promise<DeviceApp[]> {
+  console.log('[AndroidDefaults] getAppsForIntent (stub)', { _action, _mimeType, _scheme });
+  return [];
 }
 
-export function getHandlersForScheme(scheme: string): Promise<DeviceApp[]> {
-  console.log('[AndroidDefaults] getHandlersForScheme', { scheme });
-  return AndroidDefaults.getHandlersForScheme(scheme);
+export async function getHandlersForScheme(_scheme: string): Promise<DeviceApp[]> {
+  console.log('[AndroidDefaults] getHandlersForScheme (stub)', { _scheme });
+  return [];
 }
 
-export function requestDefaultRole(role: string): Promise<boolean> {
-  console.log('[AndroidDefaults] requestDefaultRole', { role });
-  return AndroidDefaults.requestDefaultRole(role);
+export async function requestDefaultRole(_role: string): Promise<boolean> {
+  console.log('[AndroidDefaults] requestDefaultRole (stub)', { _role });
+  if (Platform.OS === 'android') {
+    await Linking.openSettings();
+  }
+  return false;
 }
 
-export function checkRole(role: string): Promise<RoleStatus> {
-  console.log('[AndroidDefaults] checkRole', { role });
-  return AndroidDefaults.checkRole(role);
+export async function checkRole(_role: string): Promise<RoleStatus> {
+  console.log('[AndroidDefaults] checkRole (stub)', { _role });
+  return { role: _role, isHeld: false, currentDefault: null };
 }
 
-export function openDefaultAppsSettings(): Promise<void> {
-  console.log('[AndroidDefaults] openDefaultAppsSettings');
-  return AndroidDefaults.openDefaultAppsSettings();
+export async function openDefaultAppsSettings(): Promise<void> {
+  console.log('[AndroidDefaults] openDefaultAppsSettings (stub)');
+  if (Platform.OS === 'android') {
+    await Linking.openSettings();
+  }
 }
 
-export function openAppDefaultSettings(packageName: string): Promise<void> {
-  console.log('[AndroidDefaults] openAppDefaultSettings', { packageName });
-  return AndroidDefaults.openAppDefaultSettings(packageName);
+export async function openAppDefaultSettings(_packageName: string): Promise<void> {
+  console.log('[AndroidDefaults] openAppDefaultSettings (stub)', { _packageName });
+  if (Platform.OS === 'android') {
+    await Linking.openSettings();
+  }
 }

@@ -1,4 +1,3 @@
-import 'react-native-reanimated';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { useFonts } from 'expo-font';
