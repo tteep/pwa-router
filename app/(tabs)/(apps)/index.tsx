@@ -4,11 +4,10 @@ import {
   Text,
   ScrollView,
   Modal,
-  TextInput,
   Animated,
   RefreshControl,
-  KeyboardAvoidingView,
-  Platform,
+  Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, INTENT_COLORS } from '@/constants/AppColors';
@@ -20,10 +19,11 @@ import { EmptyState } from '@/components/EmptyState';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { SkeletonCard } from '@/components/SkeletonLoader';
 import { IntentBadge } from '@/components/IntentBadge';
-import { Plus, X, LayoutGrid } from 'lucide-react-native';
+import { Plus, X, LayoutGrid, CheckCircle2 } from 'lucide-react-native';
 import { INTENT_META } from '@/utils/intent-parser';
+import { APP_CATALOGUE } from '@/constants/AppCatalogue';
 
-const INTENT_TYPES = Object.keys(INTENT_META);
+const CATALOGUE_INTENT_TYPES = Object.keys(APP_CATALOGUE);
 
 function AnimatedListItem({ index, children }: { index: number; children: React.ReactNode }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -49,10 +49,8 @@ export default function AppsScreen() {
   const { apps, refreshApps, loading } = useRouting();
   const [refreshing, setRefreshing] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newDisplayName, setNewDisplayName] = useState('');
-  const [newPackageName, setNewPackageName] = useState('');
-  const [newIntentType, setNewIntentType] = useState('email');
-  const [saving, setSaving] = useState(false);
+  const [catalogueTab, setCatalogueTab] = useState(CATALOGUE_INTENT_TYPES[0] ?? 'email');
+  const [addingPackage, setAddingPackage] = useState<string | null>(null);
 
   const onRefresh = useCallback(async () => {
     console.log('[Apps] onRefresh');
@@ -78,32 +76,60 @@ export default function AppsScreen() {
     [user, refreshApps]
   );
 
-  const handleAddApp = useCallback(async () => {
-    console.log('[Apps] add app pressed', { newDisplayName, newPackageName, newIntentType });
-    if (!newDisplayName.trim() || !newPackageName.trim()) return;
-    if (!user) return;
-    setSaving(true);
-    try {
-      await supabase.from('installed_apps').insert({
-        user_id: user.id,
-        display_name: newDisplayName.trim(),
-        package_name: newPackageName.trim(),
-        intent_type: newIntentType,
-        is_enabled: true,
-      });
-      await refreshApps();
-      setShowAddModal(false);
-      setNewDisplayName('');
-      setNewPackageName('');
-      setNewIntentType('email');
-    } catch (err) {
-      console.error('[Apps] add app error', err);
-    } finally {
-      setSaving(false);
-    }
-  }, [user, newDisplayName, newPackageName, newIntentType, refreshApps]);
+  const handleAddFromCatalogue = useCallback(
+    async (entry: { display_name: string; package_name: string; icon: string }, intentType: string) => {
+      console.log('[Apps] add from catalogue:', entry.display_name, entry.package_name, intentType);
+      if (!user) return;
+      const alreadyAdded = apps.some((a) => a.package_name === entry.package_name);
+      if (alreadyAdded) return;
+      setAddingPackage(entry.package_name);
+      try {
+        await supabase.from('installed_apps').insert({
+          user_id: user.id,
+          display_name: entry.display_name,
+          package_name: entry.package_name,
+          intent_type: intentType,
+          is_enabled: true,
+        });
+        await refreshApps();
+      } catch (err) {
+        console.error('[Apps] add from catalogue error', err);
+      } finally {
+        setAddingPackage(null);
+      }
+    },
+    [user, apps, refreshApps]
+  );
+
+  const handleDeleteApp = useCallback(
+    (app: InstalledApp) => {
+      console.log('[Apps] delete app long press:', app.id, app.display_name);
+      Alert.alert(
+        `Remove ${app.display_name}?`,
+        'This app will be removed from your registered apps.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: async () => {
+              console.log('[Apps] delete app confirmed:', app.id);
+              try {
+                await supabase.from('installed_apps').delete().eq('id', app.id);
+                await refreshApps();
+              } catch (err) {
+                console.error('[Apps] delete app error', err);
+              }
+            },
+          },
+        ]
+      );
+    },
+    [refreshApps]
+  );
 
   // Group apps by intent type
+  const INTENT_TYPES = Object.keys(INTENT_META);
   const grouped = INTENT_TYPES.reduce<Record<string, InstalledApp[]>>((acc, type) => {
     const typeApps = apps.filter((a) => a.intent_type === type);
     if (typeApps.length > 0) acc[type] = typeApps;
@@ -111,6 +137,8 @@ export default function AppsScreen() {
   }, {});
 
   const groupEntries = Object.entries(grouped);
+
+  const catalogueEntries = APP_CATALOGUE[catalogueTab] ?? [];
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -220,7 +248,10 @@ export default function AppsScreen() {
                       fontFamily: 'SpaceGrotesk_400Regular',
                     }}
                   >
-                    {typeApps.length} app{typeApps.length !== 1 ? 's' : ''}
+                    {typeApps.length}
+                    {' '}
+                    app
+                    {typeApps.length !== 1 ? 's' : ''}
                   </Text>
                 </View>
                 {typeApps.map((app, appIndex) => (
@@ -228,6 +259,7 @@ export default function AppsScreen() {
                     <AppCard
                       app={app}
                       onToggle={(enabled) => handleToggle(app, enabled)}
+                      onLongPress={() => handleDeleteApp(app)}
                     />
                   </AnimatedListItem>
                 ))}
@@ -237,7 +269,7 @@ export default function AppsScreen() {
         )}
       </ScrollView>
 
-      {/* Add App Modal */}
+      {/* Add App Modal — Catalogue Picker */}
       <Modal
         visible={showAddModal}
         animationType="slide"
@@ -247,10 +279,8 @@ export default function AppsScreen() {
           setShowAddModal(false);
         }}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1, backgroundColor: COLORS.surface }}
-        >
+        <View style={{ flex: 1, backgroundColor: COLORS.surface }}>
+          {/* Modal header */}
           <View
             style={{
               flexDirection: 'row',
@@ -281,75 +311,156 @@ export default function AppsScreen() {
             </AnimatedPressable>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-            <View style={{ gap: 6 }}>
-              <Text style={labelStyle}>Display Name</Text>
-              <TextInput
-                value={newDisplayName}
-                onChangeText={setNewDisplayName}
-                placeholder="e.g. Gmail"
-                placeholderTextColor={COLORS.textTertiary}
-                style={inputStyle}
-              />
-            </View>
-            <View style={{ gap: 6 }}>
-              <Text style={labelStyle}>Package Name</Text>
-              <TextInput
-                value={newPackageName}
-                onChangeText={setNewPackageName}
-                placeholder="e.g. com.google.android.gm"
-                placeholderTextColor={COLORS.textTertiary}
-                style={[inputStyle, { fontFamily: 'SpaceMono' }]}
-                autoCapitalize="none"
-              />
-            </View>
-            <View style={{ gap: 6 }}>
-              <Text style={labelStyle}>Intent Type</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {INTENT_TYPES.map((type) => {
-                  const isSelected = newIntentType === type;
-                  const color = INTENT_COLORS[type] ?? COLORS.primary;
-                  return (
-                    <AnimatedPressable
-                      key={type}
-                      onPress={() => {
-                        console.log('[Apps] intent type selected:', type);
-                        setNewIntentType(type);
-                      }}
+          {/* Intent type tabs */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}
+            style={{ flexGrow: 0 }}
+          >
+            {CATALOGUE_INTENT_TYPES.map((type) => {
+              const isSelected = catalogueTab === type;
+              const color = INTENT_COLORS[type] ?? COLORS.primary;
+              const label = INTENT_META[type]?.label ?? type;
+              return (
+                <TouchableOpacity
+                  key={type}
+                  onPress={() => {
+                    console.log('[Apps] catalogue tab selected:', type);
+                    setCatalogueTab(type);
+                  }}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    backgroundColor: isSelected ? `${color}20` : COLORS.surfaceSecondary,
+                    borderWidth: 1,
+                    borderColor: isSelected ? color : COLORS.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: isSelected ? color : COLORS.textSecondary,
+                      fontSize: 13,
+                      fontFamily: 'SpaceGrotesk_500Medium',
+                    }}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Catalogue entries */}
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, gap: 8 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {catalogueEntries.map((entry) => {
+              const alreadyAdded = apps.some((a) => a.package_name === entry.package_name);
+              const isAdding = addingPackage === entry.package_name;
+              return (
+                <TouchableOpacity
+                  key={entry.package_name}
+                  onPress={() => {
+                    console.log('[Apps] catalogue entry tapped:', entry.display_name, entry.package_name);
+                    handleAddFromCatalogue(entry, catalogueTab);
+                  }}
+                  disabled={alreadyAdded || isAdding}
+                  activeOpacity={alreadyAdded ? 1 : 0.7}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                    backgroundColor: alreadyAdded ? COLORS.surfaceSecondary : COLORS.surfaceElevated,
+                    borderRadius: 12,
+                    padding: 14,
+                    borderWidth: 1,
+                    borderColor: alreadyAdded ? COLORS.border : COLORS.border,
+                    opacity: alreadyAdded ? 0.55 : 1,
+                  }}
+                >
+                  {/* Icon */}
+                  <Text style={{ fontSize: 28 }}>{entry.icon}</Text>
+
+                  {/* Name + package */}
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text
                       style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 8,
-                        backgroundColor: isSelected ? `${color}20` : COLORS.surfaceSecondary,
-                        borderWidth: 1,
-                        borderColor: isSelected ? color : COLORS.border,
+                        color: alreadyAdded ? COLORS.textSecondary : COLORS.text,
+                        fontSize: 14,
+                        fontWeight: '600',
+                        fontFamily: 'SpaceGrotesk_600SemiBold',
                       }}
                     >
-                      <Text
-                        style={{
-                          color: isSelected ? color : COLORS.textSecondary,
-                          fontSize: 12,
-                          fontFamily: 'SpaceGrotesk_500Medium',
-                        }}
-                      >
-                        {INTENT_META[type]?.label ?? type}
-                      </Text>
-                    </AnimatedPressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
+                      {entry.display_name}
+                    </Text>
+                    <Text
+                      style={{
+                        color: COLORS.textTertiary,
+                        fontSize: 11,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                        letterSpacing: 0.1,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {entry.package_name}
+                    </Text>
+                  </View>
 
+                  {/* Status indicator */}
+                  {alreadyAdded ? (
+                    <CheckCircle2 size={20} color={COLORS.accent} />
+                  ) : isAdding ? (
+                    <Text
+                      style={{
+                        color: COLORS.textTertiary,
+                        fontSize: 12,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                      }}
+                    >
+                      Adding…
+                    </Text>
+                  ) : (
+                    <View
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 8,
+                        backgroundColor: COLORS.primaryMuted,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 1,
+                        borderColor: `${COLORS.primary}40`,
+                      }}
+                    >
+                      <Plus size={16} color={COLORS.primary} />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Done button */}
+          <View
+            style={{
+              padding: 16,
+              borderTopWidth: 1,
+              borderTopColor: COLORS.border,
+            }}
+          >
             <AnimatedPressable
-              onPress={handleAddApp}
-              disabled={saving || !newDisplayName.trim() || !newPackageName.trim()}
+              onPress={() => {
+                console.log('[Apps] catalogue done pressed');
+                setShowAddModal(false);
+              }}
               style={{
                 backgroundColor: COLORS.primary,
                 borderRadius: 12,
                 paddingVertical: 14,
                 alignItems: 'center',
-                marginTop: 8,
-                opacity: saving || !newDisplayName.trim() || !newPackageName.trim() ? 0.5 : 1,
               }}
             >
               <Text
@@ -360,30 +471,12 @@ export default function AppsScreen() {
                   fontFamily: 'SpaceGrotesk_600SemiBold',
                 }}
               >
-                {saving ? 'Adding...' : 'Add App'}
+                Done
               </Text>
             </AnimatedPressable>
-          </ScrollView>
-        </KeyboardAvoidingView>
+          </View>
+        </View>
       </Modal>
     </View>
   );
 }
-
-const labelStyle = {
-  color: COLORS.textSecondary,
-  fontSize: 13,
-  fontFamily: 'SpaceGrotesk_500Medium',
-} as const;
-
-const inputStyle = {
-  backgroundColor: COLORS.surfaceSecondary,
-  borderRadius: 10,
-  paddingHorizontal: 14,
-  paddingVertical: 12,
-  color: COLORS.text,
-  fontSize: 14,
-  fontFamily: 'SpaceGrotesk_400Regular',
-  borderWidth: 1,
-  borderColor: COLORS.border,
-} as const;

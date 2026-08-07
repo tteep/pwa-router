@@ -90,7 +90,7 @@ export default function RuleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
-  const { rules, refreshRules } = useRouting();
+  const { rules, apps, refreshRules } = useRouting();
 
   const isNew = id === 'new';
   const existingRule = isNew ? null : rules.find((r) => r.id === id) ?? null;
@@ -121,19 +121,34 @@ export default function RuleDetailScreen() {
     }
   }, [existingRule]);
 
+  // When intentType changes, reset destination if the selected app doesn't exist for the new type
+  useEffect(() => {
+    if (!destPackage) return;
+    const stillValid = apps.some(
+      (a) => a.package_name === destPackage && a.intent_type === intentType
+    );
+    if (!stillValid) {
+      console.log('[RuleDetail] intent type changed, resetting destination');
+      setDestPackage('');
+      setDestDisplayName('');
+    }
+  }, [intentType]);
+
+  // Apps filtered to the current intent type
+  const appsForIntent = apps.filter((a) => a.intent_type === intentType && a.is_enabled);
+
   const validate = useCallback(() => {
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = 'Rule name is required';
-    if (!destPackage.trim()) errs.destPackage = 'Destination package is required';
-    if (!destDisplayName.trim()) errs.destDisplayName = 'Display name is required';
+    if (!destPackage.trim()) errs.destPackage = 'Select a destination app';
     const p = parseInt(priority, 10);
     if (isNaN(p) || p < 0 || p > 100) errs.priority = 'Priority must be 0–100';
     setErrors(errs);
     return Object.keys(errs).length === 0;
-  }, [name, destPackage, destDisplayName, priority]);
+  }, [name, destPackage, priority]);
 
   const handleSave = useCallback(async () => {
-    console.log('[RuleDetail] save pressed', { id, name, intentType });
+    console.log('[RuleDetail] save pressed', { id, name, intentType, destPackage });
     if (!validate()) return;
     if (!user) return;
     setSaving(true);
@@ -338,30 +353,83 @@ export default function RuleDetailScreen() {
             </View>
           )}
 
-          {/* Destination */}
+          {/* Destination App Picker */}
           <View>
-            <FormLabel text="Destination display name" required />
-            <FormInput
-              value={destDisplayName}
-              onChangeText={setDestDisplayName}
-              placeholder="e.g. Outlook"
-            />
-            {errors.destDisplayName && (
-              <Text style={{ color: COLORS.danger, fontSize: 12, marginTop: 4 }}>
-                {errors.destDisplayName}
-              </Text>
+            <FormLabel text="Destination app" required />
+            {appsForIntent.length === 0 ? (
+              <View
+                style={{
+                  backgroundColor: COLORS.surfaceSecondary,
+                  borderRadius: 10,
+                  padding: 14,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: COLORS.textTertiary,
+                    fontSize: 13,
+                    fontFamily: 'SpaceGrotesk_400Regular',
+                    textAlign: 'center',
+                  }}
+                >
+                  No apps registered for this intent type. Add apps in the Apps tab first.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8 }}
+              >
+                {appsForIntent.map((app) => {
+                  const isSelected = destPackage === app.package_name;
+                  return (
+                    <AnimatedPressable
+                      key={app.id}
+                      onPress={() => {
+                        console.log('[RuleDetail] destination app selected:', app.display_name, app.package_name);
+                        setDestPackage(app.package_name);
+                        setDestDisplayName(app.display_name);
+                      }}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        borderRadius: 10,
+                        backgroundColor: isSelected ? COLORS.primaryMuted : COLORS.surfaceSecondary,
+                        borderWidth: 1,
+                        borderColor: isSelected ? COLORS.primary : COLORS.border,
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: isSelected ? COLORS.primary : COLORS.text,
+                          fontSize: 13,
+                          fontFamily: 'SpaceGrotesk_600SemiBold',
+                        }}
+                      >
+                        {app.display_name}
+                      </Text>
+                      <Text
+                        style={{
+                          color: COLORS.textTertiary,
+                          fontSize: 10,
+                          fontFamily: 'SpaceGrotesk_400Regular',
+                        }}
+                        numberOfLines={1}
+                      >
+                        {app.package_name}
+                      </Text>
+                    </AnimatedPressable>
+                  );
+                })}
+              </ScrollView>
             )}
-          </View>
-          <View>
-            <FormLabel text="Destination package name" required />
-            <FormInput
-              value={destPackage}
-              onChangeText={setDestPackage}
-              placeholder="e.g. com.microsoft.outlook"
-              mono
-            />
             {errors.destPackage && (
-              <Text style={{ color: COLORS.danger, fontSize: 12, marginTop: 4 }}>
+              <Text style={{ color: COLORS.danger, fontSize: 12, marginTop: 6 }}>
                 {errors.destPackage}
               </Text>
             )}

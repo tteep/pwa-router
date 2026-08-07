@@ -19,82 +19,104 @@ export function RuleCard({ rule, onPress, onToggle }: RuleCardProps) {
     : `Default → ${rule.destination_display_name}`;
 
   return (
-    <AnimatedPressable
-      onPress={() => {
-        console.log('[RuleCard] pressed rule:', rule.id, rule.name);
-        onPress();
-      }}
+    <View
       style={{
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: COLORS.surface,
         borderRadius: 12,
-        padding: 16,
         borderWidth: 1,
         borderColor: COLORS.border,
         marginBottom: 10,
+        overflow: 'hidden',
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-        <View style={{ flex: 1, gap: 6 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: 15,
-                fontWeight: '600',
-                fontFamily: 'SpaceGrotesk_600SemiBold',
-                flex: 1,
-              }}
-              numberOfLines={1}
-            >
-              {rule.name}
-            </Text>
-            <View
-              style={{
-                backgroundColor: COLORS.surfaceSecondary,
-                borderRadius: 6,
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-              }}
-            >
+      {/* Pressable card body */}
+      <AnimatedPressable
+        onPress={() => {
+          console.log('[RuleCard] pressed rule:', rule.id, rule.name);
+          onPress();
+        }}
+        style={{
+          flex: 1,
+          padding: 16,
+          paddingRight: 8,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1, gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Text
                 style={{
-                  color: COLORS.textSecondary,
-                  fontSize: 10,
+                  color: COLORS.text,
+                  fontSize: 15,
+                  fontWeight: '600',
                   fontFamily: 'SpaceGrotesk_600SemiBold',
-                  fontVariant: ['tabular-nums'],
+                  flex: 1,
+                }}
+                numberOfLines={1}
+              >
+                {rule.name}
+              </Text>
+              <View
+                style={{
+                  backgroundColor: COLORS.surfaceSecondary,
+                  borderRadius: 6,
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
                 }}
               >
-                P{rule.priority}
-              </Text>
+                <Text
+                  style={{
+                    color: COLORS.textSecondary,
+                    fontSize: 10,
+                    fontFamily: 'SpaceGrotesk_600SemiBold',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  P{rule.priority}
+                </Text>
+              </View>
             </View>
+            <IntentBadge type={rule.intent_type} size="sm" />
+            <Text
+              style={{
+                color: COLORS.textSecondary,
+                fontSize: 12,
+                fontFamily: 'SpaceGrotesk_400Regular',
+                lineHeight: 17,
+              }}
+              numberOfLines={2}
+            >
+              {conditionSummary}
+            </Text>
           </View>
-          <IntentBadge type={rule.intent_type} size="sm" />
-          <Text
-            style={{
-              color: COLORS.textSecondary,
-              fontSize: 12,
-              fontFamily: 'SpaceGrotesk_400Regular',
-              lineHeight: 17,
-            }}
-            numberOfLines={2}
-          >
-            {conditionSummary}
-          </Text>
+          <ChevronRight size={16} color={COLORS.textTertiary} style={{ marginTop: 2 }} />
         </View>
-        <View style={{ alignItems: 'center', gap: 8 }}>
-          <Switch
-            value={rule.is_active}
-            onValueChange={(val) => {
-              console.log('[RuleCard] toggle rule:', rule.id, val);
-              onToggle(val);
-            }}
-            trackColor={{ false: COLORS.surfaceElevated, true: `${COLORS.accent}80` }}
-            thumbColor={rule.is_active ? COLORS.accent : COLORS.textTertiary}
-            ios_backgroundColor={COLORS.surfaceElevated}
-          />
-          <ChevronRight size={16} color={COLORS.textTertiary} />
-        </View>
+      </AnimatedPressable>
+
+      {/* Switch — sibling of pressable, not inside it */}
+      <View
+        style={{
+          paddingHorizontal: 12,
+          paddingVertical: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderLeftWidth: 1,
+          borderLeftColor: COLORS.border,
+        }}
+      >
+        <Switch
+          value={rule.is_active}
+          onValueChange={(val) => {
+            console.log('[RuleCard] toggle rule:', rule.id, val);
+            onToggle(val);
+          }}
+          trackColor={{ false: COLORS.surfaceElevated, true: `${COLORS.accent}80` }}
+          thumbColor={rule.is_active ? COLORS.accent : COLORS.textTertiary}
+          ios_backgroundColor={COLORS.surfaceElevated}
+        />
       </View>
-    </AnimatedPressable>
+    </View>
   );
 }

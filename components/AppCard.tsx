@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Switch } from 'react-native';
+import { View, Text, Switch, Pressable } from 'react-native';
 import { COLORS, INTENT_COLORS } from '@/constants/AppColors';
 import { IntentBadge } from '@/components/IntentBadge';
 import { InstalledApp } from '@/contexts/RoutingContext';
@@ -7,16 +7,22 @@ import { InstalledApp } from '@/contexts/RoutingContext';
 interface AppCardProps {
   app: InstalledApp;
   onToggle: (enabled: boolean) => void;
+  onLongPress?: () => void;
 }
 
-export function AppCard({ app, onToggle }: AppCardProps) {
+export function AppCard({ app, onToggle, onLongPress }: AppCardProps) {
   const color = INTENT_COLORS[app.intent_type] ?? COLORS.primary;
   const initial = (app.display_name[0] ?? '?').toUpperCase();
 
   return (
-    <View
-      style={{
-        backgroundColor: COLORS.surface,
+    <Pressable
+      onLongPress={() => {
+        console.log('[AppCard] long press app:', app.id, app.display_name);
+        onLongPress?.();
+      }}
+      delayLongPress={400}
+      style={({ pressed }) => ({
+        backgroundColor: pressed ? COLORS.surfaceSecondary : COLORS.surface,
         borderRadius: 12,
         padding: 14,
         borderWidth: 1,
@@ -25,7 +31,7 @@ export function AppCard({ app, onToggle }: AppCardProps) {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-      }}
+      })}
     >
       <View
         style={{
@@ -85,6 +91,6 @@ export function AppCard({ app, onToggle }: AppCardProps) {
         thumbColor={app.is_enabled ? COLORS.accent : COLORS.textTertiary}
         ios_backgroundColor={COLORS.surfaceElevated}
       />
-    </View>
+    </Pressable>
   );
 }
