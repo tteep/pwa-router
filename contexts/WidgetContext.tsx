@@ -1,11 +1,17 @@
 import * as React from "react";
 import { createContext, useCallback, useContext } from "react";
-import { ExtensionStorage } from "@bacons/apple-targets";
+import { Platform } from "react-native";
 
-// Initialize storage with your group ID
-const storage = new ExtensionStorage(
-  "group.com.<user_name>.<app_name>"
-);
+// ExtensionStorage is an iOS-only native module — only import and instantiate on iOS
+let storage: import("@bacons/apple-targets").ExtensionStorage | null = null;
+let ExtensionStorageClass: typeof import("@bacons/apple-targets").ExtensionStorage | null = null;
+
+if (Platform.OS === "ios") {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const appleTargets = require("@bacons/apple-targets");
+  ExtensionStorageClass = appleTargets.ExtensionStorage;
+  storage = new appleTargets.ExtensionStorage("group.com.gatsbyrouter.app");
+}
 
 type WidgetContextType = {
   refreshWidget: () => void;
@@ -14,17 +20,21 @@ type WidgetContextType = {
 const WidgetContext = createContext<WidgetContextType | null>(null);
 
 export function WidgetProvider({ children }: { children: React.ReactNode }) {
-  // Update widget state whenever what we want to show changes
   React.useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    console.log("[WidgetProvider] reloading widget on mount");
     // set widget_state to null if we want to reset the widget
-    // storage.set("widget_state", null);
-
-    // Refresh widget
-    ExtensionStorage.reloadWidget();
+    // storage?.set("widget_state", null);
+    ExtensionStorageClass?.reloadWidget();
   }, []);
 
   const refreshWidget = useCallback(() => {
-    ExtensionStorage.reloadWidget();
+    if (Platform.OS !== "ios") {
+      console.log("[WidgetProvider] refreshWidget called on non-iOS — skipping");
+      return;
+    }
+    console.log("[WidgetProvider] refreshWidget called");
+    ExtensionStorageClass?.reloadWidget();
   }, []);
 
   return (

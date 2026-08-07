@@ -1,6 +1,6 @@
 import 'react-native-reanimated';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -122,7 +122,54 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <AuthProvider>
             <RoutingProvider>
-              <WidgetProvider>
+              {Platform.OS === 'ios' ? (
+                <WidgetProvider>
+                  <GestureHandlerRootView style={{ flex: 1 }}>
+                    <AuthGuard>
+                      <Stack
+                        screenOptions={{
+                          headerStyle: { backgroundColor: '#161B22' },
+                          headerTintColor: '#E6EDF3',
+                          headerTitleStyle: {
+                            fontFamily: 'SpaceGrotesk_600SemiBold',
+                            fontSize: 17,
+                          },
+                          contentStyle: { backgroundColor: '#0D1117' },
+                        }}
+                      >
+                        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                        <Stack.Screen
+                          name="test-intent"
+                          options={{
+                            title: 'Simulate Intent',
+                            presentation: 'modal',
+                            headerStyle: { backgroundColor: '#161B22' },
+                            headerTintColor: '#E6EDF3',
+                          }}
+                        />
+                        <Stack.Screen
+                          name="rule/[id]"
+                          options={{
+                            title: 'Rule',
+                            headerStyle: { backgroundColor: '#161B22' },
+                            headerTintColor: '#E6EDF3',
+                          }}
+                        />
+                        <Stack.Screen
+                          name="intent/[id]"
+                          options={{
+                            title: 'Intent Detail',
+                            headerStyle: { backgroundColor: '#161B22' },
+                            headerTintColor: '#E6EDF3',
+                          }}
+                        />
+                      </Stack>
+                    </AuthGuard>
+                    <SystemBars style="light" />
+                  </GestureHandlerRootView>
+                </WidgetProvider>
+              ) : (
                 <GestureHandlerRootView style={{ flex: 1 }}>
                   <AuthGuard>
                     <Stack
@@ -167,7 +214,7 @@ export default function RootLayout() {
                   </AuthGuard>
                   <SystemBars style="light" />
                 </GestureHandlerRootView>
-              </WidgetProvider>
+              )}
             </RoutingProvider>
           </AuthProvider>
         </SafeAreaProvider>
