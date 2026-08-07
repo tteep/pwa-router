@@ -5,6 +5,7 @@ import {
   ScrollView,
   Animated,
   RefreshControl,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -25,7 +26,12 @@ import {
   Clock,
   FlaskConical,
   History,
+  Smartphone,
+  ChevronRight,
 } from 'lucide-react-native';
+import { ANDROID_ROLES, ANDROID_ROLE_LABELS } from '@/constants/AndroidRoles';
+import { checkRole } from '@/modules/android-defaults';
+import { RoleStatus } from '@/modules/android-defaults';
 
 function AnimatedListItem({ index, children }: { index: number; children: React.ReactNode }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -91,6 +97,14 @@ const DEMO_HISTORY: IntentHistoryItem[] = [
   },
 ];
 
+// Roles to show in the compact status card
+const DASHBOARD_ROLES = [
+  ANDROID_ROLES.BROWSER,
+  ANDROID_ROLES.EMAIL,
+  ANDROID_ROLES.DIALER,
+  ANDROID_ROLES.SMS,
+] as const;
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -100,6 +114,7 @@ export default function DashboardScreen() {
   const [history, setHistory] = useState<IntentHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [roleStatuses, setRoleStatuses] = useState<Record<string, RoleStatus>>({});
 
   const fetchHistory = useCallback(async () => {
     console.log('[Dashboard] fetchHistory', { userId: user?.id });
@@ -125,16 +140,38 @@ export default function DashboardScreen() {
     }
   }, [user]);
 
+  const fetchRoleStatuses = useCallback(async () => {
+    if (Platform.OS !== 'android') return;
+    console.log('[Dashboard] fetchRoleStatuses');
+    try {
+      const results = await Promise.all(
+        DASHBOARD_ROLES.map(async (role) => {
+          const status = await checkRole(role);
+          return [role, status] as [string, RoleStatus];
+        })
+      );
+      const map: Record<string, RoleStatus> = {};
+      results.forEach(([role, status]) => {
+        map[role] = status;
+      });
+      setRoleStatuses(map);
+      console.log('[Dashboard] roleStatuses loaded', map);
+    } catch (err) {
+      console.error('[Dashboard] fetchRoleStatuses error', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchHistory();
-  }, [fetchHistory]);
+    fetchRoleStatuses();
+  }, [fetchHistory, fetchRoleStatuses]);
 
   const onRefresh = useCallback(async () => {
     console.log('[Dashboard] onRefresh');
     setRefreshing(true);
-    await Promise.all([fetchHistory(), refreshRules()]);
+    await Promise.all([fetchHistory(), refreshRules(), fetchRoleStatuses()]);
     setRefreshing(false);
-  }, [fetchHistory, refreshRules]);
+  }, [fetchHistory, refreshRules, fetchRoleStatuses]);
 
   const totalRouted = history.filter((h) => h.result === 'routed').length;
   const activeRules = rules.filter((r) => r.is_active).length;
@@ -149,6 +186,11 @@ export default function DashboardScreen() {
   const avgLatencyDisplay = `${avgLatency}ms`;
   const totalRoutedDisplay = String(totalRouted);
   const activeRulesDisplay = String(activeRules);
+
+  const heldCount = DASHBOARD_ROLES.filter((r) => roleStatuses[r]?.isHeld).length;
+  const roleStatusSummary = Platform.OS === 'android'
+    ? `${heldCount}/${DASHBOARD_ROLES.length} held`
+    : null;
 
   return (
     <ScrollView
@@ -278,6 +320,120 @@ export default function DashboardScreen() {
               color={COLORS.warning}
             />
           </View>
+        </>
+      )}
+
+      {/* Default App Status Card — Android only */}
+      {Platform.OS === 'android' && (
+        <>
+          <Text
+            style={{
+              color: COLORS.textSecondary,
+              fontSize: 12,
+              fontFamily: 'SpaceGrotesk_600SemiBold',
+              letterSpacing: 0.8,
+              textTransform: 'uppercase',
+              marginBottom: 12,
+            }}
+          >
+            Default App Status
+          </Text>
+          <AnimatedPressable
+            onPress={() => {
+              console.log('[Dashboard] Default App Status card pressed, navigating to settings');
+              router.push('/(tabs)/(settings)');
+            }}
+            style={{
+              backgroundColor: COLORS.surface,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 16,
+              marginBottom: 24,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 14,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Smartphone size={16} color={COLORS.primary} />
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: 14,
+                    fontFamily: 'SpaceGrotesk_600SemiBold',
+                  }}
+                >
+                  Role Status
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {roleStatusSummary !== null && (
+                  <Text
+                    style={{
+                      color: COLORS.textSecondary,
+                      fontSize: 12,
+                      fontFamily: 'SpaceGrotesk_400Regular',
+                    }}
+                  >
+                    {roleStatusSummary}
+                  </Text>
+                )}
+                <ChevronRight size={14} color={COLORS.textTertiary} />
+              </View>
+            </View>
+            <View style={{ gap: 8 }}>
+              {DASHBOARD_ROLES.map((role) => {
+                const status = roleStatuses[role];
+                const isHeld = status?.isHeld ?? false;
+                const label = ANDROID_ROLE_LABELS[role] ?? role;
+                const dotColor = isHeld ? COLORS.accent : COLORS.danger;
+                return (
+                  <View
+                    key={role}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: dotColor,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        flex: 1,
+                        color: COLORS.text,
+                        fontSize: 13,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                    <Text
+                      style={{
+                        color: isHeld ? COLORS.accent : COLORS.textTertiary,
+                        fontSize: 12,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                      }}
+                    >
+                      {isHeld ? 'Held' : 'Not set'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </AnimatedPressable>
         </>
       )}
 

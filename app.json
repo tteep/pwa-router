@@ -27,7 +27,34 @@
       "package": "com.gatsbyrouter.app",
       "permissions": [
         "USE_BIOMETRIC",
-        "USE_FINGERPRINT"
+        "USE_FINGERPRINT",
+        "android.permission.QUERY_ALL_PACKAGES"
+      ],
+      "intentFilters": [
+        {
+          "action": "android.intent.action.VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https" },
+            { "scheme": "http" }
+          ],
+          "category": ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+        },
+        {
+          "action": "android.intent.action.SENDTO",
+          "data": [{ "scheme": "mailto" }],
+          "category": ["android.intent.category.DEFAULT"]
+        },
+        {
+          "action": "android.intent.action.DIAL",
+          "data": [{ "scheme": "tel" }],
+          "category": ["android.intent.category.DEFAULT"]
+        },
+        {
+          "action": "android.intent.action.VIEW",
+          "data": [{ "scheme": "geo" }],
+          "category": ["android.intent.category.DEFAULT"]
+        }
       ]
     },
     "web": {

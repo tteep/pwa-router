@@ -3,27 +3,33 @@ import {
   View,
   Text,
   ScrollView,
-  Modal,
+  Switch,
   Animated,
   RefreshControl,
-  Alert,
-  TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, INTENT_COLORS } from '@/constants/AppColors';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouting, InstalledApp } from '@/contexts/RoutingContext';
 import { supabase } from '@/utils/supabase';
-import { AppCard } from '@/components/AppCard';
 import { EmptyState } from '@/components/EmptyState';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { SkeletonCard } from '@/components/SkeletonLoader';
 import { IntentBadge } from '@/components/IntentBadge';
-import { Plus, X, LayoutGrid, CheckCircle2 } from 'lucide-react-native';
-import { INTENT_META } from '@/utils/intent-parser';
-import { APP_CATALOGUE } from '@/constants/AppCatalogue';
+import { LayoutGrid, Settings2, ExternalLink } from 'lucide-react-native';
+import { INTENT_TYPE_QUERY } from '@/constants/AndroidRoles';
+import { queryDeviceAppsForType, requestBecomeDefault } from '@/utils/device-apps';
+import { openDefaultAppsSettings } from '@/modules/android-defaults';
+import { DeviceApp } from '@/modules/android-defaults';
 
-const CATALOGUE_INTENT_TYPES = Object.keys(APP_CATALOGUE);
+const INTENT_TYPES = Object.keys(INTENT_TYPE_QUERY);
+
+interface AppRowState {
+  app: DeviceApp;
+  intentType: string;
+  isEnabled: boolean;
+  toggling: boolean;
+}
 
 function AnimatedListItem({ index, children }: { index: number; children: React.ReactNode }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -31,8 +37,8 @@ function AnimatedListItem({ index, children }: { index: number; children: React.
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: 350, delay: index * 60, useNativeDriver: true }),
-      Animated.timing(translateY, { toValue: 0, duration: 350, delay: index * 60, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 350, delay: index * 50, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 350, delay: index * 50, useNativeDriver: true }),
     ]).start();
   }, []);
 
@@ -46,99 +52,161 @@ function AnimatedListItem({ index, children }: { index: number; children: React.
 export default function AppsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { apps, refreshApps, loading } = useRouting();
+
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [catalogueTab, setCatalogueTab] = useState(CATALOGUE_INTENT_TYPES[0] ?? 'email');
-  const [addingPackage, setAddingPackage] = useState<string | null>(null);
+  // grouped: intentType -> DeviceApp[]
+  const [grouped, setGrouped] = useState<Record<string, DeviceApp[]>>({});
+  // enabledMap: `${intentType}:${packageName}` -> boolean
+  const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
+  const [requestingType, setRequestingType] = useState<string | null>(null);
+
+  const loadDeviceApps = useCallback(async () => {
+    console.log('[Apps] loadDeviceApps start');
+    const results: Record<string, DeviceApp[]> = {};
+    await Promise.all(
+      INTENT_TYPES.map(async (type) => {
+        const apps = await queryDeviceAppsForType(type);
+        if (apps.length > 0) results[type] = apps;
+      })
+    );
+    console.log('[Apps] loadDeviceApps done, types found:', Object.keys(results));
+    setGrouped(results);
+    return results;
+  }, []);
+
+  const loadEnabledPrefs = useCallback(async (groupedApps: Record<string, DeviceApp[]>) => {
+    if (!user) return;
+    console.log('[Apps] loadEnabledPrefs for user:', user.id);
+    try {
+      const { data, error } = await supabase
+        .from('installed_apps')
+        .select('package_name, intent_type, is_enabled')
+        .eq('user_id', user.id);
+      if (error) throw error;
+      const map: Record<string, boolean> = {};
+      // Default all device apps to enabled
+      Object.entries(groupedApps).forEach(([type, apps]) => {
+        apps.forEach((app) => {
+          map[`${type}:${app.packageName}`] = true;
+        });
+      });
+      // Override with stored prefs
+      (data ?? []).forEach((row: { package_name: string; intent_type: string; is_enabled: boolean }) => {
+        map[`${row.intent_type}:${row.package_name}`] = row.is_enabled;
+      });
+      setEnabledMap(map);
+    } catch (err) {
+      console.error('[Apps] loadEnabledPrefs error', err);
+    }
+  }, [user]);
+
+  const loadAll = useCallback(async () => {
+    const groupedApps = await loadDeviceApps();
+    await loadEnabledPrefs(groupedApps);
+    setLoading(false);
+  }, [loadDeviceApps, loadEnabledPrefs]);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
 
   const onRefresh = useCallback(async () => {
     console.log('[Apps] onRefresh');
     setRefreshing(true);
-    await refreshApps();
+    await loadAll();
     setRefreshing(false);
-  }, [refreshApps]);
+  }, [loadAll]);
 
-  const handleToggle = useCallback(
-    async (app: InstalledApp, enabled: boolean) => {
-      console.log('[Apps] toggle app:', app.id, enabled);
-      if (!user) return;
-      try {
+  const handleToggle = useCallback(async (intentType: string, app: DeviceApp, enabled: boolean) => {
+    const key = `${intentType}:${app.packageName}`;
+    console.log('[Apps] toggle app:', key, enabled);
+    if (!user) return;
+    setTogglingKey(key);
+    setEnabledMap((prev) => ({ ...prev, [key]: enabled }));
+    try {
+      const { data: existing } = await supabase
+        .from('installed_apps')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('package_name', app.packageName)
+        .eq('intent_type', intentType)
+        .maybeSingle();
+
+      if (existing) {
         await supabase
           .from('installed_apps')
           .update({ is_enabled: enabled })
-          .eq('id', app.id);
-        await refreshApps();
-      } catch (err) {
-        console.error('[Apps] toggle error', err);
-      }
-    },
-    [user, refreshApps]
-  );
-
-  const handleAddFromCatalogue = useCallback(
-    async (entry: { display_name: string; package_name: string; icon: string }, intentType: string) => {
-      console.log('[Apps] add from catalogue:', entry.display_name, entry.package_name, intentType);
-      if (!user) return;
-      const alreadyAdded = apps.some((a) => a.package_name === entry.package_name);
-      if (alreadyAdded) return;
-      setAddingPackage(entry.package_name);
-      try {
+          .eq('id', existing.id);
+      } else {
         await supabase.from('installed_apps').insert({
           user_id: user.id,
-          display_name: entry.display_name,
-          package_name: entry.package_name,
+          display_name: app.label,
+          package_name: app.packageName,
           intent_type: intentType,
-          is_enabled: true,
+          is_enabled: enabled,
         });
-        await refreshApps();
-      } catch (err) {
-        console.error('[Apps] add from catalogue error', err);
-      } finally {
-        setAddingPackage(null);
       }
-    },
-    [user, apps, refreshApps]
-  );
+      console.log('[Apps] toggle saved:', key, enabled);
+    } catch (err) {
+      console.error('[Apps] toggle error', err);
+      // Revert on error
+      setEnabledMap((prev) => ({ ...prev, [key]: !enabled }));
+    } finally {
+      setTogglingKey(null);
+    }
+  }, [user]);
 
-  const handleDeleteApp = useCallback(
-    (app: InstalledApp) => {
-      console.log('[Apps] delete app long press:', app.id, app.display_name);
-      Alert.alert(
-        `Remove ${app.display_name}?`,
-        'This app will be removed from your registered apps.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Remove',
-            style: 'destructive',
-            onPress: async () => {
-              console.log('[Apps] delete app confirmed:', app.id);
-              try {
-                await supabase.from('installed_apps').delete().eq('id', app.id);
-                await refreshApps();
-              } catch (err) {
-                console.error('[Apps] delete app error', err);
-              }
-            },
-          },
-        ]
-      );
-    },
-    [refreshApps]
-  );
+  const handleSetDefault = useCallback(async (intentType: string) => {
+    console.log('[Apps] Set as Default pressed for type:', intentType);
+    setRequestingType(intentType);
+    try {
+      const result = await requestBecomeDefault(intentType);
+      console.log('[Apps] requestBecomeDefault result:', intentType, result);
+    } catch (err) {
+      console.error('[Apps] requestBecomeDefault error', err);
+    } finally {
+      setRequestingType(null);
+    }
+  }, []);
 
-  // Group apps by intent type
-  const INTENT_TYPES = Object.keys(INTENT_META);
-  const grouped = INTENT_TYPES.reduce<Record<string, InstalledApp[]>>((acc, type) => {
-    const typeApps = apps.filter((a) => a.intent_type === type);
-    if (typeApps.length > 0) acc[type] = typeApps;
-    return acc;
-  }, {});
+  const handleOpenDefaultSettings = useCallback(async () => {
+    console.log('[Apps] Open Default Apps Settings pressed');
+    try {
+      await openDefaultAppsSettings();
+    } catch (err) {
+      console.error('[Apps] openDefaultAppsSettings error', err);
+    }
+  }, []);
 
   const groupEntries = Object.entries(grouped);
+  const totalApps = groupEntries.reduce((sum, [, apps]) => sum + apps.length, 0);
 
-  const catalogueEntries = APP_CATALOGUE[catalogueTab] ?? [];
+  if (Platform.OS !== 'android') {
+    return (
+      <View style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: insets.top + 16 }}>
+        <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontSize: 26,
+              fontWeight: '700',
+              fontFamily: 'SpaceGrotesk_700Bold',
+              letterSpacing: -0.4,
+            }}
+          >
+            Device Apps
+          </Text>
+        </View>
+        <EmptyState
+          icon={<LayoutGrid size={32} color={COLORS.textSecondary} />}
+          title="Android only"
+          subtitle="Default app management requires an Android device with PackageManager access"
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -166,23 +234,22 @@ export default function AppsScreen() {
               letterSpacing: -0.4,
             }}
           >
-            Registered Apps
+            Device Apps
           </Text>
           <AnimatedPressable
-            onPress={() => {
-              console.log('[Apps] add app FAB pressed');
-              setShowAddModal(true);
-            }}
+            onPress={handleOpenDefaultSettings}
             style={{
               width: 36,
               height: 36,
               borderRadius: 10,
-              backgroundColor: COLORS.primary,
+              backgroundColor: COLORS.surfaceSecondary,
               alignItems: 'center',
               justifyContent: 'center',
+              borderWidth: 1,
+              borderColor: COLORS.border,
             }}
           >
-            <Plus size={20} color="#fff" />
+            <Settings2 size={18} color={COLORS.textSecondary} />
           </AnimatedPressable>
         </View>
       </View>
@@ -190,7 +257,7 @@ export default function AppsScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingTop: 8,
+          paddingTop: 4,
           paddingBottom: 120,
         }}
         refreshControl={
@@ -202,281 +269,209 @@ export default function AppsScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
+        {/* Info banner */}
+        <View
+          style={{
+            backgroundColor: `${COLORS.primary}12`,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: `${COLORS.primary}30`,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            marginBottom: 20,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <LayoutGrid size={14} color={COLORS.primary} />
+          <Text
+            style={{
+              flex: 1,
+              color: COLORS.primary,
+              fontSize: 12,
+              fontFamily: 'SpaceGrotesk_400Regular',
+              lineHeight: 17,
+            }}
+          >
+            Apps shown are installed on this device and can handle each intent type
+          </Text>
+        </View>
+
         {loading ? (
           <>
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
           </>
-        ) : apps.length === 0 ? (
+        ) : totalApps === 0 ? (
           <EmptyState
             icon={<LayoutGrid size={32} color={COLORS.primary} />}
-            title="No apps registered"
-            subtitle="Add destination apps to route intents to the right place"
-            ctaLabel="Add your first app"
-            onCta={() => {
-              console.log('[Apps] EmptyState CTA pressed');
-              setShowAddModal(true);
-            }}
+            title="No apps found"
+            subtitle="No installed apps were found that can handle the supported intent types"
           />
         ) : (
           groupEntries.map(([type, typeApps], groupIndex) => {
             const color = INTENT_COLORS[type] ?? COLORS.primary;
+            const isRequesting = requestingType === type;
             return (
-              <View key={type} style={{ marginBottom: 20 }}>
+              <View key={type} style={{ marginBottom: 24 }}>
+                {/* Section header */}
                 <View
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    gap: 8,
+                    justifyContent: 'space-between',
                     marginBottom: 10,
                   }}
                 >
-                  <View
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View
+                      style={{
+                        width: 3,
+                        height: 16,
+                        borderRadius: 2,
+                        backgroundColor: color,
+                      }}
+                    />
+                    <IntentBadge type={type} />
+                    <Text
+                      style={{
+                        color: COLORS.textSecondary,
+                        fontSize: 12,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                      }}
+                    >
+                      {typeApps.length}
+                      {' '}
+                      app
+                      {typeApps.length !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                  <AnimatedPressable
+                    onPress={() => handleSetDefault(type)}
                     style={{
-                      width: 3,
-                      height: 16,
-                      borderRadius: 2,
-                      backgroundColor: color,
-                    }}
-                  />
-                  <IntentBadge type={type} />
-                  <Text
-                    style={{
-                      color: COLORS.textSecondary,
-                      fontSize: 12,
-                      fontFamily: 'SpaceGrotesk_400Regular',
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 7,
+                      backgroundColor: isRequesting ? `${color}30` : `${color}18`,
+                      borderWidth: 1,
+                      borderColor: `${color}40`,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
                     }}
                   >
-                    {typeApps.length}
-                    {' '}
-                    app
-                    {typeApps.length !== 1 ? 's' : ''}
-                  </Text>
+                    <ExternalLink size={11} color={color} />
+                    <Text
+                      style={{
+                        color: color,
+                        fontSize: 11,
+                        fontFamily: 'SpaceGrotesk_500Medium',
+                      }}
+                    >
+                      {isRequesting ? 'Requesting…' : 'Set Default'}
+                    </Text>
+                  </AnimatedPressable>
                 </View>
-                {typeApps.map((app, appIndex) => (
-                  <AnimatedListItem key={app.id} index={groupIndex * 3 + appIndex}>
-                    <AppCard
-                      app={app}
-                      onToggle={(enabled) => handleToggle(app, enabled)}
-                      onLongPress={() => handleDeleteApp(app)}
-                    />
-                  </AnimatedListItem>
-                ))}
+
+                {/* App rows */}
+                {typeApps.map((app, appIndex) => {
+                  const key = `${type}:${app.packageName}`;
+                  const isEnabled = enabledMap[key] ?? true;
+                  const isToggling = togglingKey === key;
+                  return (
+                    <AnimatedListItem key={key} index={groupIndex * 4 + appIndex}>
+                      <View
+                        style={{
+                          backgroundColor: COLORS.surface,
+                          borderRadius: 10,
+                          borderWidth: 1,
+                          borderColor: COLORS.border,
+                          paddingHorizontal: 14,
+                          paddingVertical: 12,
+                          marginBottom: 6,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 12,
+                        }}
+                      >
+                        {/* Default dot */}
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: app.isDefault ? COLORS.accent : COLORS.surfaceElevated,
+                            borderWidth: app.isDefault ? 0 : 1,
+                            borderColor: COLORS.border,
+                          }}
+                        />
+                        {/* Labels */}
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text
+                            style={{
+                              color: COLORS.text,
+                              fontSize: 14,
+                              fontFamily: 'SpaceGrotesk_500Medium',
+                            }}
+                          >
+                            {app.label}
+                          </Text>
+                          <Text
+                            style={{
+                              color: COLORS.textTertiary,
+                              fontSize: 11,
+                              fontFamily: 'SpaceGrotesk_400Regular',
+                              letterSpacing: 0.1,
+                            }}
+                            numberOfLines={1}
+                          >
+                            {app.packageName}
+                          </Text>
+                        </View>
+                        {/* Default badge */}
+                        {app.isDefault && (
+                          <View
+                            style={{
+                              paddingHorizontal: 7,
+                              paddingVertical: 3,
+                              borderRadius: 5,
+                              backgroundColor: `${COLORS.accent}20`,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: COLORS.accent,
+                                fontSize: 10,
+                                fontFamily: 'SpaceGrotesk_600SemiBold',
+                              }}
+                            >
+                              DEFAULT
+                            </Text>
+                          </View>
+                        )}
+                        {/* Toggle */}
+                        <Switch
+                          value={isEnabled}
+                          onValueChange={(val) => {
+                            console.log('[Apps] switch toggled:', key, val);
+                            handleToggle(type, app, val);
+                          }}
+                          disabled={isToggling}
+                          trackColor={{ false: COLORS.surfaceElevated, true: `${color}80` }}
+                          thumbColor={isEnabled ? color : COLORS.textTertiary}
+                          ios_backgroundColor={COLORS.surfaceElevated}
+                        />
+                      </View>
+                    </AnimatedListItem>
+                  );
+                })}
               </View>
             );
           })
         )}
       </ScrollView>
-
-      {/* Add App Modal — Catalogue Picker */}
-      <Modal
-        visible={showAddModal}
-        animationType="slide"
-        presentationStyle="formSheet"
-        onRequestClose={() => {
-          console.log('[Apps] add modal dismissed');
-          setShowAddModal(false);
-        }}
-      >
-        <View style={{ flex: 1, backgroundColor: COLORS.surface }}>
-          {/* Modal header */}
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: COLORS.border,
-            }}
-          >
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: 18,
-                fontWeight: '600',
-                fontFamily: 'SpaceGrotesk_600SemiBold',
-              }}
-            >
-              Add App
-            </Text>
-            <AnimatedPressable
-              onPress={() => {
-                console.log('[Apps] close add modal');
-                setShowAddModal(false);
-              }}
-            >
-              <X size={22} color={COLORS.textSecondary} />
-            </AnimatedPressable>
-          </View>
-
-          {/* Intent type tabs */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12, gap: 8 }}
-            style={{ flexGrow: 0 }}
-          >
-            {CATALOGUE_INTENT_TYPES.map((type) => {
-              const isSelected = catalogueTab === type;
-              const color = INTENT_COLORS[type] ?? COLORS.primary;
-              const label = INTENT_META[type]?.label ?? type;
-              return (
-                <TouchableOpacity
-                  key={type}
-                  onPress={() => {
-                    console.log('[Apps] catalogue tab selected:', type);
-                    setCatalogueTab(type);
-                  }}
-                  style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                    borderRadius: 8,
-                    backgroundColor: isSelected ? `${color}20` : COLORS.surfaceSecondary,
-                    borderWidth: 1,
-                    borderColor: isSelected ? color : COLORS.border,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: isSelected ? color : COLORS.textSecondary,
-                      fontSize: 13,
-                      fontFamily: 'SpaceGrotesk_500Medium',
-                    }}
-                  >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Catalogue entries */}
-          <ScrollView
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40, gap: 8 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {catalogueEntries.map((entry) => {
-              const alreadyAdded = apps.some((a) => a.package_name === entry.package_name);
-              const isAdding = addingPackage === entry.package_name;
-              return (
-                <TouchableOpacity
-                  key={entry.package_name}
-                  onPress={() => {
-                    console.log('[Apps] catalogue entry tapped:', entry.display_name, entry.package_name);
-                    handleAddFromCatalogue(entry, catalogueTab);
-                  }}
-                  disabled={alreadyAdded || isAdding}
-                  activeOpacity={alreadyAdded ? 1 : 0.7}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 12,
-                    backgroundColor: alreadyAdded ? COLORS.surfaceSecondary : COLORS.surfaceElevated,
-                    borderRadius: 12,
-                    padding: 14,
-                    borderWidth: 1,
-                    borderColor: alreadyAdded ? COLORS.border : COLORS.border,
-                    opacity: alreadyAdded ? 0.55 : 1,
-                  }}
-                >
-                  {/* Icon */}
-                  <Text style={{ fontSize: 28 }}>{entry.icon}</Text>
-
-                  {/* Name + package */}
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text
-                      style={{
-                        color: alreadyAdded ? COLORS.textSecondary : COLORS.text,
-                        fontSize: 14,
-                        fontWeight: '600',
-                        fontFamily: 'SpaceGrotesk_600SemiBold',
-                      }}
-                    >
-                      {entry.display_name}
-                    </Text>
-                    <Text
-                      style={{
-                        color: COLORS.textTertiary,
-                        fontSize: 11,
-                        fontFamily: 'SpaceGrotesk_400Regular',
-                        letterSpacing: 0.1,
-                      }}
-                      numberOfLines={1}
-                    >
-                      {entry.package_name}
-                    </Text>
-                  </View>
-
-                  {/* Status indicator */}
-                  {alreadyAdded ? (
-                    <CheckCircle2 size={20} color={COLORS.accent} />
-                  ) : isAdding ? (
-                    <Text
-                      style={{
-                        color: COLORS.textTertiary,
-                        fontSize: 12,
-                        fontFamily: 'SpaceGrotesk_400Regular',
-                      }}
-                    >
-                      Adding…
-                    </Text>
-                  ) : (
-                    <View
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 8,
-                        backgroundColor: COLORS.primaryMuted,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 1,
-                        borderColor: `${COLORS.primary}40`,
-                      }}
-                    >
-                      <Plus size={16} color={COLORS.primary} />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Done button */}
-          <View
-            style={{
-              padding: 16,
-              borderTopWidth: 1,
-              borderTopColor: COLORS.border,
-            }}
-          >
-            <AnimatedPressable
-              onPress={() => {
-                console.log('[Apps] catalogue done pressed');
-                setShowAddModal(false);
-              }}
-              style={{
-                backgroundColor: COLORS.primary,
-                borderRadius: 12,
-                paddingVertical: 14,
-                alignItems: 'center',
-              }}
-            >
-              <Text
-                style={{
-                  color: '#fff',
-                  fontSize: 15,
-                  fontWeight: '600',
-                  fontFamily: 'SpaceGrotesk_600SemiBold',
-                }}
-              >
-                Done
-              </Text>
-            </AnimatedPressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
