@@ -7,6 +7,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { COLORS } from '@/constants/AppColors';
@@ -371,6 +372,7 @@ export default function SettingsScreen() {
   const userEmail = user?.email ?? 'Guest';
 
   return (
+    <ErrorBoundary>
     <ScrollView
       style={{ flex: 1, backgroundColor: COLORS.background }}
       contentContainerStyle={{
@@ -594,5 +596,6 @@ export default function SettingsScreen() {
         onPress={handlePrivacyPolicy}
       />
     </ScrollView>
+    </ErrorBoundary>
   );
 }

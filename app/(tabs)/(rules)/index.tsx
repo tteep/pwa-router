@@ -7,6 +7,7 @@ import {
   RefreshControl,
   LayoutAnimation,
 } from 'react-native';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -97,6 +98,7 @@ export default function RulesScreen() {
   });
 
   return (
+    <ErrorBoundary>
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       {/* Header */}
       <View
@@ -231,5 +233,6 @@ export default function RulesScreen() {
         )}
       </ScrollView>
     </View>
+    </ErrorBoundary>
   );
 }

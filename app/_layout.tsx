@@ -27,10 +27,6 @@ import {
 } from '@expo-google-fonts/space-grotesk';
 import { COLORS } from '@/constants/AppColors';
 
-const DevErrorBoundary = __DEV__
-  ? ErrorBoundary
-  : ({ children }: { children: React.ReactNode }) => <>{children}</>;
-
 SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = {
@@ -120,7 +116,7 @@ export default function RootLayout() {
   if (!loaded) return null;
 
   return (
-    <DevErrorBoundary>
+    <ErrorBoundary>
       <StatusBar style="light" animated />
       <ThemeProvider value={colorScheme === 'dark' ? CustomDarkTheme : CustomDefaultTheme}>
         <SafeAreaProvider>
@@ -176,6 +172,6 @@ export default function RootLayout() {
           </AuthProvider>
         </SafeAreaProvider>
       </ThemeProvider>
-    </DevErrorBoundary>
+    </ErrorBoundary>
   );
 }

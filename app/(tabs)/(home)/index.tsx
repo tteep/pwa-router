@@ -1,11 +1,13 @@
 import React from "react";
 import { StyleSheet, View, Text } from "react-native";
 import { useTheme } from "@react-navigation/native";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 export default function HomeScreen() {
   const theme = useTheme();
 
   return (
+    <ErrorBoundary>
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Text style={[styles.title, { color: theme.colors.text }]}>
         Welcome to Newly
@@ -14,6 +16,7 @@ export default function HomeScreen() {
         Your app is currently building...
       </Text>
     </View>
+    </ErrorBoundary>
   );
 }
 

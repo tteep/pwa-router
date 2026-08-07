@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Platform,
 } from 'react-native';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { COLORS } from '@/constants/AppColors';
@@ -214,6 +215,7 @@ export default function DashboardScreen() {
     : null;
 
   return (
+    <ErrorBoundary>
     <ScrollView
       style={{ flex: 1, backgroundColor: COLORS.background }}
       contentContainerStyle={{
@@ -581,5 +583,6 @@ export default function DashboardScreen() {
         </>
       )}
     </ScrollView>
+    </ErrorBoundary>
   );
 }

@@ -8,6 +8,7 @@ import {
   RefreshControl,
   Platform,
 } from 'react-native';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, INTENT_COLORS } from '@/constants/AppColors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -185,6 +186,7 @@ export default function AppsScreen() {
 
   if (Platform.OS !== 'android') {
     return (
+      <ErrorBoundary>
       <View style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: insets.top + 16 }}>
         <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
           <Text
@@ -205,10 +207,12 @@ export default function AppsScreen() {
           subtitle="Default app management requires an Android device with PackageManager access"
         />
       </View>
+      </ErrorBoundary>
     );
   }
 
   return (
+    <ErrorBoundary>
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       {/* Header */}
       <View
@@ -539,5 +543,6 @@ export default function AppsScreen() {
         )}
       </ScrollView>
     </View>
+    </ErrorBoundary>
   );
 }
