@@ -16,19 +16,15 @@ import { EmptyState } from '@/components/EmptyState';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { SkeletonCard } from '@/components/SkeletonLoader';
 import { IntentBadge } from '@/components/IntentBadge';
-import { LayoutGrid, Settings2, ExternalLink } from 'lucide-react-native';
+import { LayoutGrid, Settings2, ExternalLink, Info } from 'lucide-react-native';
 import { INTENT_TYPE_QUERY } from '@/constants/AndroidRoles';
 import { queryDeviceAppsForType, requestBecomeDefault } from '@/utils/device-apps';
-import { openDefaultAppsSettings } from '@/modules/android-defaults';
-import { DeviceApp } from '@/modules/android-defaults';
+import { openDefaultAppsSettings, openAppDefaultSettings, DeviceApp } from '@/modules/android-defaults';
 
 const INTENT_TYPES = Object.keys(INTENT_TYPE_QUERY);
 
-interface AppRowState {
-  app: DeviceApp;
-  intentType: string;
-  isEnabled: boolean;
-  toggling: boolean;
+function isRoleBased(intentType: string): boolean {
+  return !!INTENT_TYPE_QUERY[intentType]?.role;
 }
 
 function AnimatedListItem({ index, children }: { index: number; children: React.ReactNode }) {
@@ -55,9 +51,7 @@ export default function AppsScreen() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  // grouped: intentType -> DeviceApp[]
   const [grouped, setGrouped] = useState<Record<string, DeviceApp[]>>({});
-  // enabledMap: `${intentType}:${packageName}` -> boolean
   const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
   const [togglingKey, setTogglingKey] = useState<string | null>(null);
   const [requestingType, setRequestingType] = useState<string | null>(null);
@@ -86,13 +80,11 @@ export default function AppsScreen() {
         .eq('user_id', user.id);
       if (error) throw error;
       const map: Record<string, boolean> = {};
-      // Default all device apps to enabled
       Object.entries(groupedApps).forEach(([type, apps]) => {
         apps.forEach((app) => {
           map[`${type}:${app.packageName}`] = true;
         });
       });
-      // Override with stored prefs
       (data ?? []).forEach((row: { package_name: string; intent_type: string; is_enabled: boolean }) => {
         map[`${row.intent_type}:${row.package_name}`] = row.is_enabled;
       });
@@ -151,7 +143,6 @@ export default function AppsScreen() {
       console.log('[Apps] toggle saved:', key, enabled);
     } catch (err) {
       console.error('[Apps] toggle error', err);
-      // Revert on error
       setEnabledMap((prev) => ({ ...prev, [key]: !enabled }));
     } finally {
       setTogglingKey(null);
@@ -177,6 +168,15 @@ export default function AppsScreen() {
       await openDefaultAppsSettings();
     } catch (err) {
       console.error('[Apps] openDefaultAppsSettings error', err);
+    }
+  }, []);
+
+  const handleOpenAppSettings = useCallback(async (packageName: string) => {
+    console.log('[Apps] Open App Default Settings pressed:', packageName);
+    try {
+      await openAppDefaultSettings(packageName);
+    } catch (err) {
+      console.error('[Apps] openAppDefaultSettings error', err);
     }
   }, []);
 
@@ -314,6 +314,8 @@ export default function AppsScreen() {
           groupEntries.map(([type, typeApps], groupIndex) => {
             const color = INTENT_COLORS[type] ?? COLORS.primary;
             const isRequesting = requestingType === type;
+            const roleBased = isRoleBased(type);
+
             return (
               <View key={type} style={{ marginBottom: 24 }}>
                 {/* Section header */}
@@ -322,7 +324,7 @@ export default function AppsScreen() {
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    marginBottom: 10,
+                    marginBottom: 8,
                   }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -348,110 +350,145 @@ export default function AppsScreen() {
                       {typeApps.length !== 1 ? 's' : ''}
                     </Text>
                   </View>
-                  <AnimatedPressable
-                    onPress={() => handleSetDefault(type)}
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      borderRadius: 7,
-                      backgroundColor: isRequesting ? `${color}30` : `${color}18`,
-                      borderWidth: 1,
-                      borderColor: `${color}40`,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 5,
-                    }}
-                  >
-                    <ExternalLink size={11} color={color} />
-                    <Text
+
+                  {roleBased && (
+                    <AnimatedPressable
+                      onPress={() => handleSetDefault(type)}
                       style={{
-                        color: color,
-                        fontSize: 11,
-                        fontFamily: 'SpaceGrotesk_500Medium',
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: 7,
+                        backgroundColor: isRequesting ? `${color}30` : `${color}18`,
+                        borderWidth: 1,
+                        borderColor: `${color}40`,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 5,
                       }}
                     >
-                      {isRequesting ? 'Requesting…' : 'Set Default'}
-                    </Text>
-                  </AnimatedPressable>
+                      <ExternalLink size={11} color={color} />
+                      <Text
+                        style={{
+                          color: color,
+                          fontSize: 11,
+                          fontFamily: 'SpaceGrotesk_500Medium',
+                        }}
+                      >
+                        {isRequesting ? 'Requesting…' : 'Set Default'}
+                      </Text>
+                    </AnimatedPressable>
+                  )}
                 </View>
+
+                {/* Non-role banner */}
+                {!roleBased && (
+                  <View
+                    style={{
+                      backgroundColor: `${COLORS.warning}10`,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: `${COLORS.warning}25`,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      marginBottom: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Info size={13} color={COLORS.warning} />
+                    <Text
+                      style={{
+                        flex: 1,
+                        color: COLORS.warning,
+                        fontSize: 11,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                        lineHeight: 16,
+                      }}
+                    >
+                      Tap an app to manage its default link handling in Android Settings
+                    </Text>
+                  </View>
+                )}
 
                 {/* App rows */}
                 {typeApps.map((app, appIndex) => {
                   const key = `${type}:${app.packageName}`;
                   const isEnabled = enabledMap[key] ?? true;
                   const isToggling = togglingKey === key;
-                  return (
-                    <AnimatedListItem key={key} index={groupIndex * 4 + appIndex}>
+
+                  const rowContent = (
+                    <View
+                      style={{
+                        backgroundColor: COLORS.surface,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        marginBottom: 6,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 12,
+                      }}
+                    >
+                      {/* Default dot */}
                       <View
                         style={{
-                          backgroundColor: COLORS.surface,
-                          borderRadius: 10,
-                          borderWidth: 1,
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: app.isDefault ? COLORS.accent : COLORS.surfaceElevated,
+                          borderWidth: app.isDefault ? 0 : 1,
                           borderColor: COLORS.border,
-                          paddingHorizontal: 14,
-                          paddingVertical: 12,
-                          marginBottom: 6,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 12,
                         }}
-                      >
-                        {/* Default dot */}
+                      />
+                      {/* Labels */}
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text
+                          style={{
+                            color: COLORS.text,
+                            fontSize: 14,
+                            fontFamily: 'SpaceGrotesk_500Medium',
+                          }}
+                        >
+                          {app.label}
+                        </Text>
+                        <Text
+                          style={{
+                            color: COLORS.textTertiary,
+                            fontSize: 11,
+                            fontFamily: 'SpaceGrotesk_400Regular',
+                            letterSpacing: 0.1,
+                          }}
+                          numberOfLines={1}
+                        >
+                          {app.packageName}
+                        </Text>
+                      </View>
+                      {/* Default badge */}
+                      {app.isDefault && (
                         <View
                           style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: 4,
-                            backgroundColor: app.isDefault ? COLORS.accent : COLORS.surfaceElevated,
-                            borderWidth: app.isDefault ? 0 : 1,
-                            borderColor: COLORS.border,
+                            paddingHorizontal: 7,
+                            paddingVertical: 3,
+                            borderRadius: 5,
+                            backgroundColor: `${COLORS.accent}20`,
                           }}
-                        />
-                        {/* Labels */}
-                        <View style={{ flex: 1, gap: 2 }}>
+                        >
                           <Text
                             style={{
-                              color: COLORS.text,
-                              fontSize: 14,
-                              fontFamily: 'SpaceGrotesk_500Medium',
+                              color: COLORS.accent,
+                              fontSize: 10,
+                              fontFamily: 'SpaceGrotesk_600SemiBold',
                             }}
                           >
-                            {app.label}
-                          </Text>
-                          <Text
-                            style={{
-                              color: COLORS.textTertiary,
-                              fontSize: 11,
-                              fontFamily: 'SpaceGrotesk_400Regular',
-                              letterSpacing: 0.1,
-                            }}
-                            numberOfLines={1}
-                          >
-                            {app.packageName}
+                            DEFAULT
                           </Text>
                         </View>
-                        {/* Default badge */}
-                        {app.isDefault && (
-                          <View
-                            style={{
-                              paddingHorizontal: 7,
-                              paddingVertical: 3,
-                              borderRadius: 5,
-                              backgroundColor: `${COLORS.accent}20`,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: COLORS.accent,
-                                fontSize: 10,
-                                fontFamily: 'SpaceGrotesk_600SemiBold',
-                              }}
-                            >
-                              DEFAULT
-                            </Text>
-                          </View>
-                        )}
-                        {/* Toggle */}
+                      )}
+                      {/* Non-role: settings icon; role-based: toggle switch */}
+                      {roleBased ? (
                         <Switch
                           value={isEnabled}
                           onValueChange={(val) => {
@@ -463,7 +500,36 @@ export default function AppsScreen() {
                           thumbColor={isEnabled ? color : COLORS.textTertiary}
                           ios_backgroundColor={COLORS.surfaceElevated}
                         />
-                      </View>
+                      ) : (
+                        <View
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 8,
+                            backgroundColor: COLORS.surfaceSecondary,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderColor: COLORS.border,
+                          }}
+                        >
+                          <Settings2 size={14} color={COLORS.textSecondary} />
+                        </View>
+                      )}
+                    </View>
+                  );
+
+                  return (
+                    <AnimatedListItem key={key} index={groupIndex * 4 + appIndex}>
+                      {roleBased ? (
+                        rowContent
+                      ) : (
+                        <AnimatedPressable
+                          onPress={() => handleOpenAppSettings(app.packageName)}
+                        >
+                          {rowContent}
+                        </AnimatedPressable>
+                      )}
                     </AnimatedListItem>
                   );
                 })}

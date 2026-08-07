@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { COLORS } from '@/constants/AppColors';
-import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/utils/supabase';
 import { setOnboardingComplete } from '@/utils/storage';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Route, Zap, LogIn, ArrowRight, ChevronRight } from 'lucide-react-native';
@@ -45,7 +45,6 @@ const STEPS = [
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const { signIn, signUp } = useAuth();
 
   const [step, setStep] = useState(0);
   const [email, setEmail] = useState('');
@@ -83,13 +82,13 @@ export default function OnboardingScreen() {
   }, [step, animateToStep]);
 
   const handleComplete = useCallback(async () => {
-    console.log('[Onboarding] complete (guest)');
+    console.log('[Onboarding] continue as guest pressed');
     await setOnboardingComplete();
     router.replace('/(tabs)/(dashboard)');
   }, [router]);
 
   const handleSignIn = useCallback(async () => {
-    console.log('[Onboarding] sign in pressed', { email, isSignUp });
+    console.log('[Onboarding] sign in/up pressed', { email, isSignUp });
     if (!email.trim() || !password.trim()) {
       setError('Please enter your email and password');
       return;
@@ -98,9 +97,21 @@ export default function OnboardingScreen() {
     setError('');
     try {
       if (isSignUp) {
-        await signUp(email.trim(), password);
+        console.log('[Onboarding] signing up with email:', email);
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+        });
+        if (signUpError) throw signUpError;
+        console.log('[Onboarding] sign up success');
       } else {
-        await signIn(email.trim(), password);
+        console.log('[Onboarding] signing in with email:', email);
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (signInError) throw signInError;
+        console.log('[Onboarding] sign in success');
       }
       await setOnboardingComplete();
       router.replace('/(tabs)/(dashboard)');
@@ -111,7 +122,7 @@ export default function OnboardingScreen() {
     } finally {
       setLoading(false);
     }
-  }, [email, password, isSignUp, signIn, signUp, router]);
+  }, [email, password, isSignUp, router]);
 
   const currentStep = STEPS[step];
   const isLastStep = step === STEPS.length - 1;
@@ -244,6 +255,66 @@ export default function OnboardingScreen() {
             {/* Auth form for step 3 */}
             {isLastStep && (
               <View style={{ gap: 12, marginBottom: 16 }}>
+                {/* Sign In / Sign Up tabs */}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    backgroundColor: COLORS.surfaceSecondary,
+                    borderRadius: 10,
+                    padding: 4,
+                    marginBottom: 4,
+                  }}
+                >
+                  <AnimatedPressable
+                    onPress={() => {
+                      console.log('[Onboarding] switched to Sign In tab');
+                      setIsSignUp(false);
+                      setError('');
+                    }}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 9,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      backgroundColor: !isSignUp ? COLORS.surface : 'transparent',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: !isSignUp ? COLORS.text : COLORS.textSecondary,
+                        fontSize: 13,
+                        fontFamily: 'SpaceGrotesk_600SemiBold',
+                      }}
+                    >
+                      Sign In
+                    </Text>
+                  </AnimatedPressable>
+                  <AnimatedPressable
+                    onPress={() => {
+                      console.log('[Onboarding] switched to Sign Up tab');
+                      setIsSignUp(true);
+                      setError('');
+                    }}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 9,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      backgroundColor: isSignUp ? COLORS.surface : 'transparent',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: isSignUp ? COLORS.text : COLORS.textSecondary,
+                        fontSize: 13,
+                        fontFamily: 'SpaceGrotesk_600SemiBold',
+                      }}
+                    >
+                      Sign Up
+                    </Text>
+                  </AnimatedPressable>
+                </View>
+
                 <View style={{ gap: 6 }}>
                   <Text
                     style={{
@@ -256,7 +327,10 @@ export default function OnboardingScreen() {
                   </Text>
                   <TextInput
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(v) => {
+                      setEmail(v);
+                      if (error) setError('');
+                    }}
                     placeholder="you@example.com"
                     placeholderTextColor={COLORS.textTertiary}
                     keyboardType="email-address"
@@ -287,7 +361,10 @@ export default function OnboardingScreen() {
                   </Text>
                   <TextInput
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={(v) => {
+                      setPassword(v);
+                      if (error) setError('');
+                    }}
                     placeholder="••••••••"
                     placeholderTextColor={COLORS.textTertiary}
                     secureTextEntry
@@ -315,25 +392,6 @@ export default function OnboardingScreen() {
                     {error}
                   </Text>
                 )}
-
-                <AnimatedPressable
-                  onPress={() => {
-                    console.log('[Onboarding] toggle sign up/in');
-                    setIsSignUp((v) => !v);
-                    setError('');
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: COLORS.primary,
-                      fontSize: 13,
-                      fontFamily: 'SpaceGrotesk_500Medium',
-                      textAlign: 'center',
-                    }}
-                  >
-                    {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
-                  </Text>
-                </AnimatedPressable>
               </View>
             )}
           </Animated.View>
@@ -346,7 +404,7 @@ export default function OnboardingScreen() {
                   onPress={handleSignIn}
                   disabled={loading}
                   style={{
-                    backgroundColor: COLORS.primary,
+                    backgroundColor: loading ? COLORS.surfaceElevated : COLORS.primary,
                     borderRadius: 12,
                     paddingVertical: 15,
                     alignItems: 'center',
@@ -357,15 +415,15 @@ export default function OnboardingScreen() {
                 >
                   <Text
                     style={{
-                      color: '#fff',
+                      color: loading ? COLORS.textSecondary : '#fff',
                       fontSize: 15,
                       fontWeight: '600',
                       fontFamily: 'SpaceGrotesk_600SemiBold',
                     }}
                   >
-                    {loading ? 'Signing in...' : isSignUp ? 'Create account' : 'Sign in'}
+                    {loading ? (isSignUp ? 'Creating account...' : 'Signing in...') : isSignUp ? 'Create account' : 'Sign in'}
                   </Text>
-                  <ArrowRight size={18} color="#fff" />
+                  {!loading && <ArrowRight size={18} color="#fff" />}
                 </AnimatedPressable>
                 <AnimatedPressable
                   onPress={handleComplete}

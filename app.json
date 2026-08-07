@@ -35,25 +35,50 @@
           "action": "android.intent.action.VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https" },
-            { "scheme": "http" }
+            {
+              "scheme": "https"
+            },
+            {
+              "scheme": "http"
+            }
           ],
-          "category": ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+          "category": [
+            "android.intent.category.DEFAULT",
+            "android.intent.category.BROWSABLE"
+          ]
         },
         {
           "action": "android.intent.action.SENDTO",
-          "data": [{ "scheme": "mailto" }],
-          "category": ["android.intent.category.DEFAULT"]
+          "data": [
+            {
+              "scheme": "mailto"
+            }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         },
         {
           "action": "android.intent.action.DIAL",
-          "data": [{ "scheme": "tel" }],
-          "category": ["android.intent.category.DEFAULT"]
+          "data": [
+            {
+              "scheme": "tel"
+            }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         },
         {
           "action": "android.intent.action.VIEW",
-          "data": [{ "scheme": "geo" }],
-          "category": ["android.intent.category.DEFAULT"]
+          "data": [
+            {
+              "scheme": "geo"
+            }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
         }
       ]
     },

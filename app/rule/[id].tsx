@@ -103,7 +103,7 @@ export default function RuleDetailScreen() {
   const [destPackage, setDestPackage] = useState('');
   const [destDisplayName, setDestDisplayName] = useState('');
   const [priority, setPriority] = useState('50');
-  const [isActive, setIsActive] = useState(true);
+  const [isEnabled, setIsEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -114,10 +114,10 @@ export default function RuleDetailScreen() {
       setConditionField(existingRule.condition_field ?? '');
       setConditionOperator(existingRule.condition_operator ?? 'contains');
       setConditionValue(existingRule.condition_value ?? '');
-      setDestPackage(existingRule.destination_package);
-      setDestDisplayName(existingRule.destination_display_name);
+      setDestPackage(existingRule.dest_package);
+      setDestDisplayName(existingRule.dest_display_name);
       setPriority(String(existingRule.priority));
-      setIsActive(existingRule.is_active);
+      setIsEnabled(existingRule.is_enabled);
     }
   }, [existingRule]);
 
@@ -134,7 +134,7 @@ export default function RuleDetailScreen() {
     }
   }, [intentType]);
 
-  // Apps filtered to the current intent type
+  // Apps filtered to the current intent type that are enabled
   const appsForIntent = apps.filter((a) => a.intent_type === intentType && a.is_enabled);
 
   const validate = useCallback(() => {
@@ -153,23 +153,31 @@ export default function RuleDetailScreen() {
     if (!user) return;
     setSaving(true);
     try {
-      const payload: Partial<RoutingRule> = {
+      const payload = {
         name: name.trim(),
         intent_type: intentType,
         condition_field: conditionField.trim() || null,
         condition_operator: conditionField.trim() ? conditionOperator : null,
         condition_value: conditionField.trim() && conditionValue.trim() ? conditionValue.trim() : null,
-        destination_package: destPackage.trim(),
-        destination_display_name: destDisplayName.trim(),
+        dest_package: destPackage.trim(),
+        dest_display_name: destDisplayName.trim(),
         priority: parseInt(priority, 10),
-        is_active: isActive,
+        is_enabled: isEnabled,
       };
 
       if (isNew) {
-        await supabase.from('routing_rules').insert({ ...payload, user_id: user.id });
+        const { error } = await supabase
+          .from('routing_rules')
+          .insert({ ...payload, user_id: user.id });
+        if (error) throw error;
       } else {
-        await supabase.from('routing_rules').update(payload).eq('id', id);
+        const { error } = await supabase
+          .from('routing_rules')
+          .update(payload)
+          .eq('id', id);
+        if (error) throw error;
       }
+      console.log('[RuleDetail] save success', { id, name });
       await refreshRules();
       router.back();
     } catch (err) {
@@ -178,7 +186,7 @@ export default function RuleDetailScreen() {
     } finally {
       setSaving(false);
     }
-  }, [validate, user, isNew, id, name, intentType, conditionField, conditionOperator, conditionValue, destPackage, destDisplayName, priority, isActive, refreshRules, router]);
+  }, [validate, user, isNew, id, name, intentType, conditionField, conditionOperator, conditionValue, destPackage, destDisplayName, priority, isEnabled, refreshRules, router]);
 
   const handleDelete = useCallback(() => {
     console.log('[RuleDetail] delete pressed', { id });
@@ -374,7 +382,7 @@ export default function RuleDetailScreen() {
                     textAlign: 'center',
                   }}
                 >
-                  No apps registered for this intent type. Add apps in the Apps tab first.
+                  No apps enabled for this type — go to the Apps tab first
                 </Text>
               </View>
             ) : (
@@ -451,7 +459,7 @@ export default function RuleDetailScreen() {
             )}
           </View>
 
-          {/* Active Toggle */}
+          {/* Enabled Toggle */}
           <View
             style={{
               flexDirection: 'row',
@@ -471,16 +479,16 @@ export default function RuleDetailScreen() {
                 fontFamily: 'SpaceGrotesk_500Medium',
               }}
             >
-              Active
+              Enabled
             </Text>
             <Switch
-              value={isActive}
+              value={isEnabled}
               onValueChange={(val) => {
-                console.log('[RuleDetail] active toggle:', val);
-                setIsActive(val);
+                console.log('[RuleDetail] enabled toggle:', val);
+                setIsEnabled(val);
               }}
               trackColor={{ false: COLORS.surfaceElevated, true: `${COLORS.accent}80` }}
-              thumbColor={isActive ? COLORS.accent : COLORS.textTertiary}
+              thumbColor={isEnabled ? COLORS.accent : COLORS.textTertiary}
               ios_backgroundColor={COLORS.surfaceElevated}
             />
           </View>

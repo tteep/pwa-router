@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS } from '@/constants/AppColors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouting } from '@/contexts/RoutingContext';
@@ -54,6 +55,14 @@ export default function RulesScreen() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [refreshing, setRefreshing] = useState(false);
 
+  // Reload rules when returning from the editor
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[Rules] screen focused, refreshing rules');
+      refreshRules();
+    }, [refreshRules])
+  );
+
   const onRefresh = useCallback(async () => {
     console.log('[Rules] onRefresh');
     setRefreshing(true);
@@ -69,7 +78,7 @@ export default function RulesScreen() {
       try {
         await supabase
           .from('routing_rules')
-          .update({ is_active: active })
+          .update({ is_enabled: active })
           .eq('id', rule.id);
         await refreshRules();
       } catch (err) {

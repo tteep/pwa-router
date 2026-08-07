@@ -449,7 +449,7 @@ export default function TestIntentScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <Text style={{ color: COLORS.textSecondary, fontSize: 12, fontFamily: 'SpaceGrotesk_400Regular' }}>Destination</Text>
                       <Text style={{ color: COLORS.text, fontSize: 12, fontFamily: 'SpaceGrotesk_500Medium' }}>
-                        {matchedRule.destination_display_name}
+                        {matchedRule.dest_display_name}
                       </Text>
                     </View>
                     <View style={{ height: 1, backgroundColor: COLORS.divider }} />
@@ -459,7 +459,7 @@ export default function TestIntentScreen() {
                         style={{ color: COLORS.textSecondary, fontSize: 11, fontFamily: 'SpaceMono' }}
                         numberOfLines={1}
                       >
-                        {matchedRule.destination_package}
+                        {matchedRule.dest_package}
                       </Text>
                     </View>
                     <View style={{ height: 1, backgroundColor: COLORS.divider }} />

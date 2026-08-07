@@ -5,12 +5,13 @@ export interface RoutingRule {
   condition_field: string | null;
   condition_operator: string | null;
   condition_value: string | null;
-  destination_package: string;
-  destination_display_name: string;
+  dest_package: string;
+  dest_display_name: string;
   priority: number;
-  is_active: boolean;
+  is_enabled: boolean;
   user_id?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export function evaluateRules(
@@ -19,7 +20,7 @@ export function evaluateRules(
   rawData: Record<string, unknown>
 ): RoutingRule | null {
   const applicable = rules
-    .filter((r) => r.is_active && r.intent_type === intentType)
+    .filter((r) => r.is_enabled && r.intent_type === intentType)
     .sort((a, b) => b.priority - a.priority);
 
   for (const rule of applicable) {

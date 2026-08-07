@@ -30,8 +30,7 @@ import {
   ChevronRight,
 } from 'lucide-react-native';
 import { ANDROID_ROLES, ANDROID_ROLE_LABELS } from '@/constants/AndroidRoles';
-import { checkRole } from '@/modules/android-defaults';
-import { RoleStatus } from '@/modules/android-defaults';
+import { checkRole, RoleStatus } from '@/modules/android-defaults';
 
 function AnimatedListItem({ index, children }: { index: number; children: React.ReactNode }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -61,42 +60,6 @@ function AnimatedListItem({ index, children }: { index: number; children: React.
   );
 }
 
-// Demo history for guest mode
-const DEMO_HISTORY: IntentHistoryItem[] = [
-  {
-    id: 'h1',
-    intent_type: 'email',
-    destination_app: 'Outlook',
-    result: 'routed',
-    latency_ms: 42,
-    created_at: new Date(Date.now() - 2 * 60000).toISOString(),
-  },
-  {
-    id: 'h2',
-    intent_type: 'geo',
-    destination_app: 'Google Maps',
-    result: 'routed',
-    latency_ms: 18,
-    created_at: new Date(Date.now() - 15 * 60000).toISOString(),
-  },
-  {
-    id: 'h3',
-    intent_type: 'browser',
-    destination_app: 'Chrome',
-    result: 'routed',
-    latency_ms: 31,
-    created_at: new Date(Date.now() - 60 * 60000).toISOString(),
-  },
-  {
-    id: 'h4',
-    intent_type: 'pdf',
-    destination_app: null,
-    result: 'error',
-    latency_ms: 120,
-    created_at: new Date(Date.now() - 3 * 3600000).toISOString(),
-  },
-];
-
 // Roles to show in the compact status card
 const DASHBOARD_ROLES = [
   ANDROID_ROLES.BROWSER,
@@ -105,6 +68,13 @@ const DASHBOARD_ROLES = [
   ANDROID_ROLES.SMS,
 ] as const;
 
+interface DashboardStats {
+  rulesCount: number;
+  appsCount: number;
+  todayIntentsCount: number;
+  avgLatencyMs: number;
+}
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -112,29 +82,85 @@ export default function DashboardScreen() {
   const { rules, refreshRules } = useRouting();
 
   const [history, setHistory] = useState<IntentHistoryItem[]>([]);
+  const [stats, setStats] = useState<DashboardStats>({
+    rulesCount: 0,
+    appsCount: 0,
+    todayIntentsCount: 0,
+    avgLatencyMs: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [roleStatuses, setRoleStatuses] = useState<Record<string, RoleStatus>>({});
 
-  const fetchHistory = useCallback(async () => {
-    console.log('[Dashboard] fetchHistory', { userId: user?.id });
+  const fetchData = useCallback(async () => {
+    console.log('[Dashboard] fetchData', { userId: user?.id });
     if (!user) {
-      setHistory(DEMO_HISTORY);
       setLoading(false);
       return;
     }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayIso = todayStart.toISOString();
+
     try {
-      const { data, error } = await supabase
-        .from('intent_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      if (error) throw error;
-      setHistory((data ?? []) as IntentHistoryItem[]);
+      const [rulesRes, appsRes, historyRes, todayRes] = await Promise.all([
+        supabase
+          .from('routing_rules')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('installed_apps')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('intent_history')
+          .select('id, intent_type, dest_display_name, result, latency_ms, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('intent_history')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('created_at', todayIso),
+      ]);
+
+      const rulesCount = rulesRes.count ?? 0;
+      const appsCount = appsRes.count ?? 0;
+      const todayIntentsCount = todayRes.count ?? 0;
+
+      const historyRows = (historyRes.data ?? []) as Array<{
+        id: string;
+        intent_type: string;
+        dest_display_name: string | null;
+        result: string;
+        latency_ms: number | null;
+        created_at: string;
+      }>;
+
+      // Map Supabase column names to IntentHistoryItem shape
+      const mappedHistory: IntentHistoryItem[] = historyRows.map((row) => ({
+        id: row.id,
+        intent_type: row.intent_type,
+        destination_app: row.dest_display_name,
+        result: row.result,
+        latency_ms: row.latency_ms,
+        created_at: row.created_at,
+      }));
+
+      const avgLatencyMs =
+        historyRows.length > 0
+          ? Math.round(
+              historyRows.reduce((sum, h) => sum + (h.latency_ms ?? 0), 0) / historyRows.length
+            )
+          : 0;
+
+      setHistory(mappedHistory);
+      setStats({ rulesCount, appsCount, todayIntentsCount, avgLatencyMs });
+      console.log('[Dashboard] fetchData done', { rulesCount, appsCount, todayIntentsCount, avgLatencyMs });
     } catch (err) {
-      console.warn('[Dashboard] fetchHistory error', err);
-      setHistory(DEMO_HISTORY);
+      console.error('[Dashboard] fetchData error', err);
     } finally {
       setLoading(false);
     }
@@ -162,29 +188,24 @@ export default function DashboardScreen() {
   }, []);
 
   useEffect(() => {
-    fetchHistory();
+    fetchData();
     fetchRoleStatuses();
-  }, [fetchHistory, fetchRoleStatuses]);
+  }, [fetchData, fetchRoleStatuses]);
 
   const onRefresh = useCallback(async () => {
     console.log('[Dashboard] onRefresh');
     setRefreshing(true);
-    await Promise.all([fetchHistory(), refreshRules(), fetchRoleStatuses()]);
+    await Promise.all([fetchData(), refreshRules(), fetchRoleStatuses()]);
     setRefreshing(false);
-  }, [fetchHistory, refreshRules, fetchRoleStatuses]);
+  }, [fetchData, refreshRules, fetchRoleStatuses]);
 
-  const totalRouted = history.filter((h) => h.result === 'routed').length;
-  const activeRules = rules.filter((r) => r.is_active).length;
-  const avgLatency =
-    history.length > 0
-      ? Math.round(
-          history.reduce((sum, h) => sum + (h.latency_ms ?? 0), 0) / history.length
-        )
-      : 0;
-  const topRules = rules.filter((r) => r.is_active).slice(0, 3);
+  const activeRules = rules.filter((r) => r.is_enabled).length;
+  const topRules = rules.filter((r) => r.is_enabled).slice(0, 3);
 
-  const avgLatencyDisplay = `${avgLatency}ms`;
-  const totalRoutedDisplay = String(totalRouted);
+  const avgLatencyDisplay = `${stats.avgLatencyMs}ms`;
+  const rulesCountDisplay = String(stats.rulesCount);
+  const appsCountDisplay = String(stats.appsCount);
+  const todayIntentsDisplay = String(stats.todayIntentsCount);
   const activeRulesDisplay = String(activeRules);
 
   const heldCount = DASHBOARD_ROLES.filter((r) => roleStatuses[r]?.isHeld).length;
@@ -295,8 +316,8 @@ export default function DashboardScreen() {
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
             <StatCard
               icon={<Activity size={18} color={COLORS.accent} />}
-              value={totalRoutedDisplay}
-              label="Total Routed"
+              value={todayIntentsDisplay}
+              label="Today's Intents"
               color={COLORS.accent}
             />
             <StatCard
@@ -309,7 +330,7 @@ export default function DashboardScreen() {
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
             <StatCard
               icon={<LayoutGrid size={18} color="#BC8CFF" />}
-              value={String(history.length)}
+              value={appsCountDisplay}
               label="Apps Registered"
               color="#BC8CFF"
             />

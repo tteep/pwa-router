@@ -15,8 +15,8 @@ interface RuleCardProps {
 
 export function RuleCard({ rule, onPress, onToggle }: RuleCardProps) {
   const conditionSummary = rule.condition_field
-    ? `${rule.condition_field} ${rule.condition_operator?.replace('_', ' ')} "${rule.condition_value}" → ${rule.destination_display_name}`
-    : `Default → ${rule.destination_display_name}`;
+    ? `${rule.condition_field} ${rule.condition_operator?.replace('_', ' ')} "${rule.condition_value}" → ${rule.dest_display_name}`
+    : `Default → ${rule.dest_display_name}`;
 
   return (
     <View
@@ -107,13 +107,13 @@ export function RuleCard({ rule, onPress, onToggle }: RuleCardProps) {
         }}
       >
         <Switch
-          value={rule.is_active}
+          value={rule.is_enabled}
           onValueChange={(val) => {
             console.log('[RuleCard] toggle rule:', rule.id, val);
             onToggle(val);
           }}
           trackColor={{ false: COLORS.surfaceElevated, true: `${COLORS.accent}80` }}
-          thumbColor={rule.is_active ? COLORS.accent : COLORS.textTertiary}
+          thumbColor={rule.is_enabled ? COLORS.accent : COLORS.textTertiary}
           ios_backgroundColor={COLORS.surfaceElevated}
         />
       </View>
