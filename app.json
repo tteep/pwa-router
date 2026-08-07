@@ -15,7 +15,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.placeholder.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSFaceIDUsageDescription": "Gatsby Router uses Face ID to securely authenticate you before routing intents."
       }
     },
     "android": {
@@ -23,7 +24,11 @@
         "foregroundImage": "./assets/images/app-icon-kki.png",
         "backgroundColor": "#0D1117"
       },
-      "package": "com.placeholder.app"
+      "package": "com.placeholder.app",
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
+      ]
     },
     "web": {
       "favicon": "./assets/images/newly.png",
