@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Gatsby Router",
-    "slug": "gatsby-router",
+    "slug": "gatsby-router-android-thxfzt",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/app-icon-kki.png",
@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.placeholder.app",
+      "bundleIdentifier": "com.gatsbyrouter.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSFaceIDUsageDescription": "Gatsby Router uses Face ID to securely authenticate you before routing intents."
@@ -24,7 +24,7 @@
         "foregroundImage": "./assets/images/app-icon-kki.png",
         "backgroundColor": "#0D1117"
       },
-      "package": "com.placeholder.app",
+      "package": "com.gatsbyrouter.app",
       "permissions": [
         "USE_BIOMETRIC",
         "USE_FINGERPRINT"

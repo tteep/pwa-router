@@ -36,7 +36,10 @@ import {
   Info,
   LogOut,
   ChevronRight,
+  Shield,
+  UserX,
 } from 'lucide-react-native';
+import { Linking } from 'react-native';
 import Constants from 'expo-constants';
 
 function SectionHeader({ title }: { title: string }) {
@@ -263,6 +266,46 @@ export default function SettingsScreen() {
     ]);
   }, [signOut]);
 
+  const handleDeleteAccount = useCallback(() => {
+    console.log('[Settings] delete account pressed');
+    Alert.alert(
+      'Delete account?',
+      'This will permanently delete your account, all routing rules, intent history, and app data. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: async () => {
+            console.log('[Settings] delete account confirmed');
+            try {
+              if (user) {
+                // Delete all user data from each table in order
+                await supabase.from('analytics_queue').delete().eq('user_id', user.id);
+                await supabase.from('intent_history').delete().eq('user_id', user.id);
+                await supabase.from('cached_responses').delete().eq('user_id', user.id);
+                await supabase.from('routing_rules').delete().eq('user_id', user.id);
+                await supabase.from('installed_apps').delete().eq('user_id', user.id);
+                await supabase.from('profiles').delete().eq('id', user.id);
+                // Delete the auth user via RPC (requires a server-side function)
+                await supabase.rpc('delete_user');
+              }
+              await signOut();
+            } catch (err) {
+              console.error('[Settings] delete account error', err);
+              Alert.alert('Error', 'Could not delete account. Please contact support at support@gatsbyrouter.app.');
+            }
+          },
+        },
+      ]
+    );
+  }, [user, signOut]);
+
+  const handlePrivacyPolicy = useCallback(() => {
+    console.log('[Settings] privacy policy pressed');
+    Linking.openURL('https://gatsbyrouter.app/privacy');
+  }, []);
+
   const syncLabel = getRelativeSync(lastSync);
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
   const userEmail = user?.email ?? 'Guest';
@@ -302,6 +345,14 @@ export default function SettingsScreen() {
           icon={<LogOut size={16} color={COLORS.danger} />}
           label="Sign out"
           onPress={handleSignOut}
+          destructive
+        />
+      )}
+      {user && (
+        <SettingsRow
+          icon={<UserX size={16} color={COLORS.danger} />}
+          label="Delete account"
+          onPress={handleDeleteAccount}
           destructive
         />
       )}
@@ -385,6 +436,11 @@ export default function SettingsScreen() {
         icon={<Info size={16} color={COLORS.textSecondary} />}
         label="Gatsby Router"
         value={`v${appVersion}`}
+      />
+      <SettingsRow
+        icon={<Shield size={16} color={COLORS.textSecondary} />}
+        label="Privacy Policy"
+        onPress={handlePrivacyPolicy}
       />
     </ScrollView>
   );
