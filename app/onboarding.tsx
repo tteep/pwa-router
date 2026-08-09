@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { COLORS } from '@/constants/AppColors';
@@ -15,7 +16,9 @@ import { setOnboardingComplete } from '@/utils/storage';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { Route, Zap, LogIn, ArrowRight, ChevronRight } from 'lucide-react-native';
 
-const STEPS = [
+// ─── Onboarding intro steps (steps 0 and 1) ──────────────────────────────────
+
+const INTRO_STEPS = [
   {
     icon: <Route size={48} color={COLORS.primary} />,
     title: 'Welcome to\nGatsby Router',
@@ -34,26 +37,86 @@ const STEPS = [
       destination: '→ Outlook',
     },
   },
-  {
-    icon: <LogIn size={48} color={COLORS.accent} />,
-    title: 'Sign In to Sync',
-    subtitle:
-      'Sign in to sync your rules across devices. Or continue as a guest to explore with demo data.',
-    cta: 'Sign in',
-  },
 ];
+
+// ─── Input field helper ───────────────────────────────────────────────────────
+
+function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  secureTextEntry,
+  keyboardType,
+  autoComplete,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder: string;
+  secureTextEntry?: boolean;
+  keyboardType?: 'email-address' | 'default';
+  autoComplete?: 'email' | 'password' | 'new-password';
+}) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Text
+        style={{
+          color: COLORS.textSecondary,
+          fontSize: 12,
+          fontFamily: 'SpaceGrotesk_500Medium',
+        }}
+      >
+        {label}
+      </Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={COLORS.textTertiary}
+        keyboardType={keyboardType ?? 'default'}
+        autoCapitalize="none"
+        autoComplete={autoComplete}
+        secureTextEntry={secureTextEntry}
+        style={{
+          backgroundColor: COLORS.surfaceSecondary,
+          borderRadius: 10,
+          paddingHorizontal: 14,
+          paddingVertical: 13,
+          color: COLORS.text,
+          fontSize: 15,
+          fontFamily: 'SpaceGrotesk_400Regular',
+          borderWidth: 1,
+          borderColor: COLORS.border,
+        }}
+      />
+    </View>
+  );
+}
+
+// ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
   const router = useRouter();
 
+  // Intro step (0 = welcome, 1 = rules explainer, 2 = auth)
   const [step, setStep] = useState(0);
+
+  // Auth tab
+  const [activeTab, setActiveTab] = useState<'signin' | 'signup'>('signin');
+
+  // Form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const slideAnim = useRef(new Animated.Value(0)).current;
+
+  const clearError = useCallback(() => setError(''), []);
 
   const animateToStep = useCallback(
     (nextStep: number) => {
@@ -76,56 +139,117 @@ export default function OnboardingScreen() {
 
   const handleNext = useCallback(() => {
     console.log('[Onboarding] next pressed, step:', step);
-    if (step < STEPS.length - 1) {
+    if (step < 2) {
       animateToStep(step + 1);
     }
   }, [step, animateToStep]);
 
-  const handleComplete = useCallback(async () => {
-    console.log('[Onboarding] continue as guest pressed');
-    await setOnboardingComplete();
-    router.replace('/(tabs)/(dashboard)');
-  }, [router]);
+  const handleTabSwitch = useCallback((tab: 'signin' | 'signup') => {
+    console.log('[Onboarding] tab switched to:', tab);
+    setActiveTab(tab);
+    setError('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+  }, []);
+
+  // ── Sign In ────────────────────────────────────────────────────────────────
 
   const handleSignIn = useCallback(async () => {
-    console.log('[Onboarding] sign in/up pressed', { email, isSignUp });
+    console.log('[Onboarding] sign in pressed', { email });
     if (!email.trim() || !password.trim()) {
-      setError('Please enter your email and password');
+      setError('Please enter your email and password.');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      if (isSignUp) {
-        console.log('[Onboarding] signing up with email:', email);
-        const { error: signUpError } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-        });
-        if (signUpError) throw signUpError;
-        console.log('[Onboarding] sign up success');
-      } else {
-        console.log('[Onboarding] signing in with email:', email);
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (signInError) throw signInError;
-        console.log('[Onboarding] sign in success');
-      }
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) throw signInError;
+      console.log('[Onboarding] sign in success');
       await setOnboardingComplete();
       router.replace('/(tabs)/(dashboard)');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Authentication failed';
-      console.error('[Onboarding] auth error', msg);
+      const msg = err instanceof Error ? err.message : 'Sign in failed. Please try again.';
+      console.error('[Onboarding] sign in error:', msg);
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [email, password, isSignUp, router]);
+  }, [email, password, router]);
 
-  const currentStep = STEPS[step];
-  const isLastStep = step === STEPS.length - 1;
+  // ── Sign Up ────────────────────────────────────────────────────────────────
+
+  const handleSignUp = useCallback(async () => {
+    console.log('[Onboarding] sign up pressed', { email });
+    if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
+      setError('Please fill in all fields.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      if (signUpError) throw signUpError;
+      console.log('[Onboarding] sign up success');
+      await setOnboardingComplete();
+      router.replace('/(tabs)/(dashboard)');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Sign up failed. Please try again.';
+      console.error('[Onboarding] sign up error:', msg);
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [email, password, confirmPassword, router]);
+
+  // ── Continue as Guest (anonymous auth) ────────────────────────────────────
+
+  const handleGuest = useCallback(async () => {
+    console.log('[Onboarding] continue as guest pressed');
+    setLoading(true);
+    setError('');
+    try {
+      const { error: anonError } = await supabase.auth.signInAnonymously();
+      if (anonError) throw anonError;
+      console.log('[Onboarding] anonymous sign in success');
+      await setOnboardingComplete();
+      router.replace('/(tabs)/(dashboard)');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Could not continue as guest. Please try again.';
+      console.error('[Onboarding] anonymous sign in error:', msg);
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
+
+  // ── Derived values ─────────────────────────────────────────────────────────
+
+  const isAuthStep = step === 2;
+  const isSignIn = activeTab === 'signin';
+  const isSignUp = activeTab === 'signup';
+  const currentIntroStep = INTRO_STEPS[step];
+
+  const signInButtonLabel = loading && isSignIn ? 'Signing in…' : 'Sign In';
+  const signUpButtonLabel = loading && isSignUp ? 'Creating account…' : 'Sign Up';
+  const guestButtonLabel = loading && !isSignIn && !isSignUp ? 'Continuing…' : 'Continue as Guest';
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -150,138 +274,182 @@ export default function OnboardingScreen() {
               transform: [{ translateX: slideAnim }],
             }}
           >
-            {/* Icon */}
-            <View
-              style={{
-                width: 96,
-                height: 96,
-                borderRadius: 24,
-                backgroundColor: COLORS.surfaceSecondary,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 32,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-              }}
-            >
-              {currentStep.icon}
-            </View>
+            {/* ── Intro steps (0 & 1) ── */}
+            {!isAuthStep && currentIntroStep && (
+              <>
+                {/* Icon */}
+                <View
+                  style={{
+                    width: 96,
+                    height: 96,
+                    borderRadius: 24,
+                    backgroundColor: COLORS.surfaceSecondary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 32,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                  }}
+                >
+                  {currentIntroStep.icon}
+                </View>
 
-            {/* Title */}
-            <Text
-              style={{
-                color: COLORS.text,
-                fontSize: 32,
-                fontWeight: '700',
-                fontFamily: 'SpaceGrotesk_700Bold',
-                letterSpacing: -0.6,
-                lineHeight: 40,
-                marginBottom: 16,
-              }}
-            >
-              {currentStep.title}
-            </Text>
+                {/* Title */}
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: 32,
+                    fontWeight: '700',
+                    fontFamily: 'SpaceGrotesk_700Bold',
+                    letterSpacing: -0.6,
+                    lineHeight: 40,
+                    marginBottom: 16,
+                  }}
+                >
+                  {currentIntroStep.title}
+                </Text>
 
-            {/* Subtitle */}
-            <Text
-              style={{
-                color: COLORS.textSecondary,
-                fontSize: 16,
-                fontFamily: 'SpaceGrotesk_400Regular',
-                lineHeight: 24,
-                marginBottom: 32,
-              }}
-            >
-              {currentStep.subtitle}
-            </Text>
-
-            {/* Example card for step 2 */}
-            {step === 1 && currentStep.example && (
-              <View
-                style={{
-                  backgroundColor: COLORS.surface,
-                  borderRadius: 12,
-                  padding: 16,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  marginBottom: 32,
-                  gap: 8,
-                }}
-              >
+                {/* Subtitle */}
                 <Text
                   style={{
                     color: COLORS.textSecondary,
-                    fontSize: 11,
-                    fontFamily: 'SpaceGrotesk_500Medium',
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.8,
+                    fontSize: 16,
+                    fontFamily: 'SpaceGrotesk_400Regular',
+                    lineHeight: 24,
+                    marginBottom: 32,
                   }}
                 >
-                  Example rule
+                  {currentIntroStep.subtitle}
                 </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+
+                {/* Example card for step 1 */}
+                {step === 1 && currentIntroStep.example && (
                   <View
                     style={{
-                      backgroundColor: COLORS.primaryMuted,
-                      borderRadius: 6,
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
+                      backgroundColor: COLORS.surface,
+                      borderRadius: 12,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      marginBottom: 32,
+                      gap: 8,
                     }}
                   >
                     <Text
                       style={{
-                        color: COLORS.primary,
-                        fontSize: 12,
-                        fontFamily: 'SpaceMono',
+                        color: COLORS.textSecondary,
+                        fontSize: 11,
+                        fontFamily: 'SpaceGrotesk_500Medium',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.8,
                       }}
                     >
-                      {currentStep.example.condition}
+                      Example rule
                     </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View
+                        style={{
+                          backgroundColor: COLORS.primaryMuted,
+                          borderRadius: 6,
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: COLORS.primary,
+                            fontSize: 12,
+                            fontFamily: 'SpaceMono',
+                          }}
+                        >
+                          {currentIntroStep.example.condition}
+                        </Text>
+                      </View>
+                      <ChevronRight size={14} color={COLORS.textTertiary} />
+                      <Text
+                        style={{
+                          color: COLORS.accent,
+                          fontSize: 13,
+                          fontFamily: 'SpaceGrotesk_600SemiBold',
+                        }}
+                      >
+                        {currentIntroStep.example.destination}
+                      </Text>
+                    </View>
                   </View>
-                  <ChevronRight size={14} color={COLORS.textTertiary} />
-                  <Text
-                    style={{
-                      color: COLORS.accent,
-                      fontSize: 13,
-                      fontFamily: 'SpaceGrotesk_600SemiBold',
-                    }}
-                  >
-                    {currentStep.example.destination}
-                  </Text>
-                </View>
-              </View>
+                )}
+              </>
             )}
 
-            {/* Auth form for step 3 */}
-            {isLastStep && (
-              <View style={{ gap: 12, marginBottom: 16 }}>
-                {/* Sign In / Sign Up tabs */}
+            {/* ── Auth step (2) ── */}
+            {isAuthStep && (
+              <>
+                {/* Header */}
+                <View
+                  style={{
+                    width: 96,
+                    height: 96,
+                    borderRadius: 24,
+                    backgroundColor: COLORS.surfaceSecondary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 32,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                  }}
+                >
+                  <LogIn size={48} color={COLORS.accent} />
+                </View>
+
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: 32,
+                    fontWeight: '700',
+                    fontFamily: 'SpaceGrotesk_700Bold',
+                    letterSpacing: -0.6,
+                    lineHeight: 40,
+                    marginBottom: 16,
+                  }}
+                >
+                  Sign In to Sync
+                </Text>
+
+                <Text
+                  style={{
+                    color: COLORS.textSecondary,
+                    fontSize: 16,
+                    fontFamily: 'SpaceGrotesk_400Regular',
+                    lineHeight: 24,
+                    marginBottom: 28,
+                  }}
+                >
+                  Sign in to sync your rules across devices. Or continue as a guest to explore with demo data.
+                </Text>
+
+                {/* Tab switcher */}
                 <View
                   style={{
                     flexDirection: 'row',
                     backgroundColor: COLORS.surfaceSecondary,
                     borderRadius: 10,
                     padding: 4,
-                    marginBottom: 4,
+                    marginBottom: 16,
                   }}
                 >
                   <AnimatedPressable
-                    onPress={() => {
-                      console.log('[Onboarding] switched to Sign In tab');
-                      setIsSignUp(false);
-                      setError('');
-                    }}
+                    onPress={() => handleTabSwitch('signin')}
                     style={{
                       flex: 1,
                       paddingVertical: 9,
                       borderRadius: 8,
                       alignItems: 'center',
-                      backgroundColor: !isSignUp ? COLORS.surface : 'transparent',
+                      backgroundColor: isSignIn ? COLORS.surface : 'transparent',
                     }}
                   >
                     <Text
                       style={{
-                        color: !isSignUp ? COLORS.text : COLORS.textSecondary,
+                        color: isSignIn ? COLORS.text : COLORS.textSecondary,
                         fontSize: 13,
                         fontFamily: 'SpaceGrotesk_600SemiBold',
                       }}
@@ -290,11 +458,7 @@ export default function OnboardingScreen() {
                     </Text>
                   </AnimatedPressable>
                   <AnimatedPressable
-                    onPress={() => {
-                      console.log('[Onboarding] switched to Sign Up tab');
-                      setIsSignUp(true);
-                      setError('');
-                    }}
+                    onPress={() => handleTabSwitch('signup')}
                     style={{
                       flex: 1,
                       paddingVertical: 9,
@@ -315,93 +479,72 @@ export default function OnboardingScreen() {
                   </AnimatedPressable>
                 </View>
 
-                <View style={{ gap: 6 }}>
-                  <Text
-                    style={{
-                      color: COLORS.textSecondary,
-                      fontSize: 12,
-                      fontFamily: 'SpaceGrotesk_500Medium',
-                    }}
-                  >
-                    Email
-                  </Text>
-                  <TextInput
+                {/* Form fields */}
+                <View style={{ gap: 12, marginBottom: 16 }}>
+                  <Field
+                    label="Email"
                     value={email}
-                    onChangeText={(v) => {
-                      setEmail(v);
-                      if (error) setError('');
-                    }}
+                    onChangeText={(v) => { setEmail(v); clearError(); }}
                     placeholder="you@example.com"
-                    placeholderTextColor={COLORS.textTertiary}
                     keyboardType="email-address"
-                    autoCapitalize="none"
                     autoComplete="email"
-                    style={{
-                      backgroundColor: COLORS.surfaceSecondary,
-                      borderRadius: 10,
-                      paddingHorizontal: 14,
-                      paddingVertical: 13,
-                      color: COLORS.text,
-                      fontSize: 15,
-                      fontFamily: 'SpaceGrotesk_400Regular',
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                    }}
                   />
-                </View>
-                <View style={{ gap: 6 }}>
-                  <Text
-                    style={{
-                      color: COLORS.textSecondary,
-                      fontSize: 12,
-                      fontFamily: 'SpaceGrotesk_500Medium',
-                    }}
-                  >
-                    Password
-                  </Text>
-                  <TextInput
+                  <Field
+                    label="Password"
                     value={password}
-                    onChangeText={(v) => {
-                      setPassword(v);
-                      if (error) setError('');
-                    }}
+                    onChangeText={(v) => { setPassword(v); clearError(); }}
                     placeholder="••••••••"
-                    placeholderTextColor={COLORS.textTertiary}
                     secureTextEntry
-                    style={{
-                      backgroundColor: COLORS.surfaceSecondary,
-                      borderRadius: 10,
-                      paddingHorizontal: 14,
-                      paddingVertical: 13,
-                      color: COLORS.text,
-                      fontSize: 15,
-                      fontFamily: 'SpaceGrotesk_400Regular',
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                    }}
+                    autoComplete={isSignUp ? 'new-password' : 'password'}
                   />
+                  {isSignUp && (
+                    <Field
+                      label="Confirm Password"
+                      value={confirmPassword}
+                      onChangeText={(v) => { setConfirmPassword(v); clearError(); }}
+                      placeholder="••••••••"
+                      secureTextEntry
+                      autoComplete="new-password"
+                    />
+                  )}
                 </View>
+
+                {/* Error box */}
                 {error !== '' && (
-                  <Text
+                  <View
                     style={{
-                      color: COLORS.danger,
-                      fontSize: 13,
-                      fontFamily: 'SpaceGrotesk_400Regular',
+                      backgroundColor: 'rgba(248,81,73,0.12)',
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: 'rgba(248,81,73,0.35)',
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      marginBottom: 4,
                     }}
                   >
-                    {error}
-                  </Text>
+                    <Text
+                      style={{
+                        color: COLORS.danger,
+                        fontSize: 13,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                        lineHeight: 18,
+                      }}
+                    >
+                      {error}
+                    </Text>
+                  </View>
                 )}
-              </View>
+              </>
             )}
           </Animated.View>
 
-          {/* Bottom actions */}
+          {/* ── Bottom actions ── */}
           <View style={{ gap: 10, marginTop: 24 }}>
-            {isLastStep ? (
+            {isAuthStep ? (
               <>
+                {/* Primary auth button */}
                 <AnimatedPressable
-                  onPress={handleSignIn}
+                  onPress={isSignIn ? handleSignIn : handleSignUp}
                   disabled={loading}
                   style={{
                     backgroundColor: loading ? COLORS.surfaceElevated : COLORS.primary,
@@ -413,20 +556,29 @@ export default function OnboardingScreen() {
                     gap: 8,
                   }}
                 >
-                  <Text
-                    style={{
-                      color: loading ? COLORS.textSecondary : '#fff',
-                      fontSize: 15,
-                      fontWeight: '600',
-                      fontFamily: 'SpaceGrotesk_600SemiBold',
-                    }}
-                  >
-                    {loading ? (isSignUp ? 'Creating account...' : 'Signing in...') : isSignUp ? 'Create account' : 'Sign in'}
-                  </Text>
-                  {!loading && <ArrowRight size={18} color="#fff" />}
+                  {loading ? (
+                    <ActivityIndicator size="small" color={COLORS.textSecondary} />
+                  ) : (
+                    <>
+                      <Text
+                        style={{
+                          color: '#fff',
+                          fontSize: 15,
+                          fontWeight: '600',
+                          fontFamily: 'SpaceGrotesk_600SemiBold',
+                        }}
+                      >
+                        {isSignIn ? signInButtonLabel : signUpButtonLabel}
+                      </Text>
+                      <ArrowRight size={18} color="#fff" />
+                    </>
+                  )}
                 </AnimatedPressable>
+
+                {/* Guest button */}
                 <AnimatedPressable
-                  onPress={handleComplete}
+                  onPress={handleGuest}
+                  disabled={loading}
                   style={{
                     backgroundColor: COLORS.surfaceSecondary,
                     borderRadius: 12,
@@ -436,12 +588,12 @@ export default function OnboardingScreen() {
                 >
                   <Text
                     style={{
-                      color: COLORS.textSecondary,
+                      color: loading ? COLORS.textTertiary : COLORS.textSecondary,
                       fontSize: 14,
                       fontFamily: 'SpaceGrotesk_500Medium',
                     }}
                   >
-                    Continue as guest
+                    {guestButtonLabel}
                   </Text>
                 </AnimatedPressable>
               </>
@@ -466,7 +618,7 @@ export default function OnboardingScreen() {
                     fontFamily: 'SpaceGrotesk_600SemiBold',
                   }}
                 >
-                  {currentStep.cta}
+                  {currentIntroStep?.cta ?? 'Continue'}
                 </Text>
                 <ArrowRight size={18} color="#fff" />
               </AnimatedPressable>
@@ -481,7 +633,7 @@ export default function OnboardingScreen() {
                 marginTop: 8,
               }}
             >
-              {STEPS.map((_, i) => (
+              {[0, 1, 2].map((i) => (
                 <View
                   key={i}
                   style={{

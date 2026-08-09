@@ -57,28 +57,31 @@ const CustomDefaultTheme: Theme = {
 };
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useAuth();
+  const { session, isLoading } = useAuth();
   const router = useRouter();
   const segments = useSegments();
 
   useEffect(() => {
-    if (loading) return;
+    // Don't redirect until the initial session check has completed
+    if (isLoading) return;
 
     const inOnboarding = segments[0] === 'onboarding';
-    const inTabs = segments[0] === '(tabs)';
 
-    console.log('[AuthGuard] session:', !!session, 'segments:', segments, 'loading:', loading);
+    console.log('[AuthGuard] session:', !!session, 'segments:', segments, 'isLoading:', isLoading);
 
     if (!session && !inOnboarding) {
+      // No session (not even anonymous) → send to onboarding
       console.log('[AuthGuard] no session → redirect to onboarding');
       router.replace('/onboarding');
     } else if (session && inOnboarding) {
+      // Already authenticated (including anonymous) → skip onboarding
       console.log('[AuthGuard] session exists on onboarding → redirect to tabs');
       router.replace('/(tabs)/(dashboard)');
     }
-  }, [session, loading, segments]);
+  }, [session, isLoading, segments]);
 
-  if (loading) {
+  // Show spinner while the initial getSession() is in flight
+  if (isLoading) {
     return (
       <View
         style={{

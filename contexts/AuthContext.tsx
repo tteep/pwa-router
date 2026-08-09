@@ -5,6 +5,9 @@ import { Session, User } from '@supabase/supabase-js';
 interface AuthContextType {
   session: Session | null;
   user: User | null;
+  /** True until the initial getSession() call resolves */
+  isLoading: boolean;
+  /** Alias for isLoading — kept for backwards compat */
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
@@ -19,18 +22,24 @@ export function useAuth() {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Initialise from persisted session first
     supabase.auth.getSession().then(({ data: { session: s } }) => {
+      console.log('[AuthContext] initial session:', s ? `uid=${s.user.id}` : 'none');
       setSession(s);
-      setLoading(false);
+      setIsLoading(false);
     });
+
+    // Keep in sync with any auth state changes (sign-in, sign-out, token refresh)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, s) => {
+      console.log('[AuthContext] onAuthStateChange event:', _event, 'session:', s ? `uid=${s.user.id}` : 'none');
       setSession(s);
     });
+
     return () => subscription.unsubscribe();
   }, []);
 
@@ -61,7 +70,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, loading, signIn, signUp, signOut }}
+      value={{
+        session,
+        user: session?.user ?? null,
+        isLoading,
+        loading: isLoading,
+        signIn,
+        signUp,
+        signOut,
+      }}
     >
       {children}
     </AuthContext.Provider>

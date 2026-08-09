@@ -98,7 +98,9 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {}
+      "router": {},
+      "supabaseUrl": "https://eomrynglzkjeygguvtyw.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvbXJ5bmdsemtqZXlnZ3V2dHl3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYwNDU0MDEsImV4cCI6MjEwMTYyMTQwMX0.K-22c2ypgHJZbrCCsLjSy1qtrS12oNKIKXhC528CA5o"
     }
   }
 }
