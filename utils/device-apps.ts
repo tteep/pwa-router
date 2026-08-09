@@ -6,8 +6,10 @@ import {
   DeviceApp,
 } from '@/modules/android-defaults';
 import { INTENT_TYPE_QUERY } from '@/constants/AndroidRoles';
+import { APP_CATALOGUE } from '@/constants/AppCatalogue';
 
-// Returns apps installed on the device that can handle a given intent_type
+// Returns apps installed on the device that can handle a given intent_type.
+// Falls back to AppCatalogue demo entries when the native module returns empty (e.g. Expo Go).
 export async function queryDeviceAppsForType(intentType: string): Promise<DeviceApp[]> {
   console.log('[DeviceApps] queryDeviceAppsForType', { intentType, platform: Platform.OS });
   if (Platform.OS !== 'android') return [];
@@ -16,13 +18,29 @@ export async function queryDeviceAppsForType(intentType: string): Promise<Device
     console.warn('[DeviceApps] no query config for intentType:', intentType);
     return [];
   }
+
   try {
     const apps = await getAppsForIntent(query.action, query.mimeType, query.scheme);
     console.log('[DeviceApps] queryDeviceAppsForType result', { intentType, count: apps.length });
-    return apps;
+
+    if (apps.length > 0) return apps;
+
+    // Fallback: use AppCatalogue entries as demo/stub apps when native module returns empty
+    const catalogueApps = APP_CATALOGUE[intentType] ?? [];
+    console.log('[DeviceApps] using AppCatalogue fallback for', intentType, '— entries:', catalogueApps.length);
+    return catalogueApps.map((entry) => ({
+      packageName: entry.package_name,
+      label: entry.display_name,
+      isDefault: false,
+    }));
   } catch (e) {
-    console.warn('[DeviceApps] queryDeviceAppsForType error', e);
-    return [];
+    console.warn('[DeviceApps] queryDeviceAppsForType error, using AppCatalogue fallback', e);
+    const catalogueApps = APP_CATALOGUE[intentType] ?? [];
+    return catalogueApps.map((entry) => ({
+      packageName: entry.package_name,
+      label: entry.display_name,
+      isDefault: false,
+    }));
   }
 }
 

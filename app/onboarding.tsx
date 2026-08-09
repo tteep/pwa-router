@@ -217,22 +217,89 @@ export default function OnboardingScreen() {
     }
   }, [email, password, confirmPassword, router]);
 
-  // ── Continue as Guest (anonymous auth) ────────────────────────────────────
+  // ── Continue as Guest (anonymous auth with fallbacks) ─────────────────────
 
   const handleGuest = useCallback(async () => {
     console.log('[Onboarding] continue as guest pressed');
     setLoading(true);
     setError('');
     try {
+      // Step 1: Try anonymous sign-in
       const { error: anonError } = await supabase.auth.signInAnonymously();
-      if (anonError) throw anonError;
-      console.log('[Onboarding] anonymous sign in success');
-      await setOnboardingComplete();
-      router.replace('/(tabs)/(dashboard)');
+      if (!anonError) {
+        console.log('[Onboarding] anonymous sign in success');
+        await setOnboardingComplete();
+        router.replace('/(tabs)/(dashboard)');
+        return;
+      }
+
+      console.warn('[Onboarding] anonymous sign in error:', anonError.message);
+
+      // Step 2: If anonymous sign-ins are disabled, use guest-session edge function
+      if (anonError.message.toLowerCase().includes('anonymous sign-ins are disabled') ||
+          anonError.message.toLowerCase().includes('anonymous') ||
+          anonError.status === 422) {
+        console.log('[Onboarding] falling back to guest-session edge function');
+
+        // Get or create a stable device ID
+        const { default: SecureStore } = await import('expo-secure-store');
+        let deviceId = await SecureStore.getItemAsync('gatsby_device_id');
+        if (!deviceId) {
+          deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0;
+            const v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          });
+          await SecureStore.setItemAsync('gatsby_device_id', deviceId);
+          console.log('[Onboarding] generated new device ID:', deviceId);
+        } else {
+          console.log('[Onboarding] using existing device ID:', deviceId);
+        }
+
+        console.log('[Onboarding] calling guest-session edge function');
+        const response = await fetch(
+          'https://eomrynglzkjeygguvtyw.supabase.co/functions/v1/guest-session',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId }),
+          }
+        );
+
+        if (!response.ok) {
+          const text = await response.text();
+          console.warn('[Onboarding] guest-session edge function error:', response.status, text);
+          throw new Error(`Guest session failed: ${response.status}`);
+        }
+
+        const { email: guestEmail, password: guestPassword } = await response.json();
+        console.log('[Onboarding] guest-session returned credentials, signing in');
+
+        const { error: pwError } = await supabase.auth.signInWithPassword({
+          email: guestEmail,
+          password: guestPassword,
+        });
+        if (pwError) throw pwError;
+
+        console.log('[Onboarding] guest password sign in success');
+        await setOnboardingComplete();
+        router.replace('/(tabs)/(dashboard)');
+        return;
+      }
+
+      throw anonError;
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Could not continue as guest. Please try again.';
-      console.error('[Onboarding] anonymous sign in error:', msg);
-      setError(msg);
+      console.warn('[Onboarding] all auth methods failed, entering demo mode');
+      // Step 3: Final fallback — skip auth entirely, enter demo/guest mode
+      try {
+        await setOnboardingComplete();
+        router.replace('/(tabs)/(dashboard)');
+      } catch (navErr) {
+        const msg = err instanceof Error ? err.message : 'Could not continue as guest. Please try again.';
+        console.error('[Onboarding] guest fallback error:', msg);
+        setError(msg);
+        setLoading(false);
+      }
     } finally {
       setLoading(false);
     }

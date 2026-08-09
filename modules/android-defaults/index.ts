@@ -23,9 +23,21 @@ export async function getHandlersForScheme(_scheme: string): Promise<DeviceApp[]
 }
 
 export async function requestDefaultRole(_role: string): Promise<boolean> {
-  console.log('[AndroidDefaults] requestDefaultRole (stub)', { _role });
+  console.log('[AndroidDefaults] requestDefaultRole', { _role, platform: Platform.OS });
   if (Platform.OS === 'android') {
-    await Linking.openSettings();
+    try {
+      // ACTION_MANAGE_DEFAULT_APPS_SETTINGS — opens Android's "Default apps" settings screen
+      await Linking.openURL('android-app://com.android.settings/.applications.DefaultAppSettings');
+      console.log('[AndroidDefaults] opened DefaultAppSettings via android-app URI');
+    } catch {
+      console.warn('[AndroidDefaults] DefaultAppSettings URI failed, trying package URI');
+      try {
+        await Linking.openURL('package:com.android.settings');
+      } catch {
+        console.warn('[AndroidDefaults] package URI failed, falling back to openSettings');
+        await Linking.openSettings();
+      }
+    }
   }
   return false;
 }
@@ -36,15 +48,33 @@ export async function checkRole(_role: string): Promise<RoleStatus> {
 }
 
 export async function openDefaultAppsSettings(): Promise<void> {
-  console.log('[AndroidDefaults] openDefaultAppsSettings (stub)');
+  console.log('[AndroidDefaults] openDefaultAppsSettings', { platform: Platform.OS });
   if (Platform.OS === 'android') {
-    await Linking.openSettings();
+    try {
+      await Linking.openURL('android-app://com.android.settings/.applications.DefaultAppSettings');
+      console.log('[AndroidDefaults] opened DefaultAppSettings via android-app URI');
+    } catch {
+      console.warn('[AndroidDefaults] android-app URI failed, trying settings action URI');
+      try {
+        await Linking.openURL('android.settings.MANAGE_DEFAULT_APPS_SETTINGS');
+        console.log('[AndroidDefaults] opened via settings action URI');
+      } catch {
+        console.warn('[AndroidDefaults] settings action URI failed, falling back to openSettings');
+        await Linking.openSettings();
+      }
+    }
   }
 }
 
-export async function openAppDefaultSettings(_packageName: string): Promise<void> {
-  console.log('[AndroidDefaults] openAppDefaultSettings (stub)', { _packageName });
+export async function openAppDefaultSettings(packageName: string): Promise<void> {
+  console.log('[AndroidDefaults] openAppDefaultSettings', { packageName, platform: Platform.OS });
   if (Platform.OS === 'android') {
-    await Linking.openSettings();
+    try {
+      await Linking.openURL(`package:${packageName}`);
+      console.log('[AndroidDefaults] opened app settings via package URI:', packageName);
+    } catch {
+      console.warn('[AndroidDefaults] package URI failed for', packageName, ', falling back to openSettings');
+      await Linking.openSettings();
+    }
   }
 }
