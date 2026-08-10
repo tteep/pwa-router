@@ -25,19 +25,7 @@ export async function getHandlersForScheme(_scheme: string): Promise<DeviceApp[]
 export async function requestDefaultRole(_role: string): Promise<boolean> {
   console.log('[AndroidDefaults] requestDefaultRole', { _role, platform: Platform.OS });
   if (Platform.OS === 'android') {
-    try {
-      // ACTION_MANAGE_DEFAULT_APPS_SETTINGS — opens Android's "Default apps" settings screen
-      await Linking.openURL('android-app://com.android.settings/.applications.DefaultAppSettings');
-      console.log('[AndroidDefaults] opened DefaultAppSettings via android-app URI');
-    } catch {
-      console.warn('[AndroidDefaults] DefaultAppSettings URI failed, trying package URI');
-      try {
-        await Linking.openURL('package:com.android.settings');
-      } catch {
-        console.warn('[AndroidDefaults] package URI failed, falling back to openSettings');
-        await Linking.openSettings();
-      }
-    }
+    await openDefaultAppsSettings();
   }
   return false;
 }
@@ -49,31 +37,47 @@ export async function checkRole(_role: string): Promise<RoleStatus> {
 
 export async function openDefaultAppsSettings(): Promise<void> {
   console.log('[AndroidDefaults] openDefaultAppsSettings', { platform: Platform.OS });
-  if (Platform.OS === 'android') {
+  if (Platform.OS !== 'android') return;
+
+  try {
+    const uri = 'intent:#Intent;action=android.settings.MANAGE_DEFAULT_APPS_SETTINGS;end';
+    console.log('[AndroidDefaults] trying MANAGE_DEFAULT_APPS_SETTINGS intent URI');
+    await Linking.openURL(uri);
+    console.log('[AndroidDefaults] opened MANAGE_DEFAULT_APPS_SETTINGS successfully');
+  } catch (e1) {
+    console.warn('[AndroidDefaults] MANAGE_DEFAULT_APPS_SETTINGS failed:', e1);
     try {
-      await Linking.openURL('android-app://com.android.settings/.applications.DefaultAppSettings');
-      console.log('[AndroidDefaults] opened DefaultAppSettings via android-app URI');
-    } catch {
-      console.warn('[AndroidDefaults] android-app URI failed, trying settings action URI');
-      try {
-        await Linking.openURL('android.settings.MANAGE_DEFAULT_APPS_SETTINGS');
-        console.log('[AndroidDefaults] opened via settings action URI');
-      } catch {
-        console.warn('[AndroidDefaults] settings action URI failed, falling back to openSettings');
-        await Linking.openSettings();
-      }
+      const fallbackUri = 'intent:#Intent;action=android.settings.APPLICATION_SETTINGS;end';
+      console.log('[AndroidDefaults] trying APPLICATION_SETTINGS intent URI');
+      await Linking.openURL(fallbackUri);
+      console.log('[AndroidDefaults] opened APPLICATION_SETTINGS successfully');
+    } catch (e2) {
+      console.warn('[AndroidDefaults] APPLICATION_SETTINGS failed:', e2);
+      console.log('[AndroidDefaults] falling back to Linking.openSettings()');
+      await Linking.openSettings();
     }
   }
 }
 
 export async function openAppDefaultSettings(packageName: string): Promise<void> {
   console.log('[AndroidDefaults] openAppDefaultSettings', { packageName, platform: Platform.OS });
-  if (Platform.OS === 'android') {
+  if (Platform.OS !== 'android') return;
+
+  try {
+    const uri = `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:${packageName};end`;
+    console.log('[AndroidDefaults] trying APPLICATION_DETAILS_SETTINGS intent URI for', packageName);
+    await Linking.openURL(uri);
+    console.log('[AndroidDefaults] opened APPLICATION_DETAILS_SETTINGS successfully for', packageName);
+  } catch (e1) {
+    console.warn('[AndroidDefaults] APPLICATION_DETAILS_SETTINGS failed for', packageName, ':', e1);
     try {
-      await Linking.openURL(`package:${packageName}`);
-      console.log('[AndroidDefaults] opened app settings via package URI:', packageName);
-    } catch {
-      console.warn('[AndroidDefaults] package URI failed for', packageName, ', falling back to openSettings');
+      const fallbackUri = 'intent:#Intent;action=android.settings.APPLICATION_SETTINGS;end';
+      console.log('[AndroidDefaults] trying APPLICATION_SETTINGS intent URI');
+      await Linking.openURL(fallbackUri);
+      console.log('[AndroidDefaults] opened APPLICATION_SETTINGS successfully');
+    } catch (e2) {
+      console.warn('[AndroidDefaults] APPLICATION_SETTINGS failed:', e2);
+      console.log('[AndroidDefaults] falling back to Linking.openSettings()');
       await Linking.openSettings();
     }
   }
