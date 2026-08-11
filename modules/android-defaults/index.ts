@@ -29,32 +29,13 @@ export async function getHandlersForScheme(_scheme: string): Promise<DeviceApp[]
 // Opens Android's Default Apps settings screen
 export async function openDefaultAppsSettings(): Promise<void> {
   if (Platform.OS !== 'android') return;
-
-  // Try the most specific Default Apps settings URI first
-  const uris = [
-    'content://com.android.settings/default_apps',
-    'android.settings.MANAGE_DEFAULT_APPS_SETTINGS',
-  ];
-
-  for (const uri of uris) {
-    try {
-      const canOpen = await Linking.canOpenURL(uri);
-      if (canOpen) {
-        console.log('[AndroidDefaults] opening default apps settings via:', uri);
-        await Linking.openURL(uri);
-        return;
-      }
-    } catch (_) {}
-  }
-
-  // Final fallback: open general app settings and tell the user where to go
-  console.log('[AndroidDefaults] falling back to Alert + openSettings()');
+  console.log('[AndroidDefaults] openDefaultAppsSettings');
   Alert.alert(
-    'Open Default Apps',
-    'Go to Settings → Apps → Default Apps to change your default apps.',
+    'Default Apps Settings',
+    'To set system-wide default apps, go to:\n\nSettings → Apps → Default Apps\n\nNote: Gatsby Router handles routing internally — tap "Test Intent" in the app to route links through your PWA.',
     [
       { text: 'Open Settings', onPress: () => Linking.openSettings() },
-      { text: 'Cancel', style: 'cancel' },
+      { text: 'OK', style: 'cancel' },
     ]
   );
 }
@@ -70,12 +51,11 @@ export async function openAppDefaultSettings(packageName: string): Promise<void>
   console.log('[AndroidDefaults] openAppDefaultSettings', { packageName, platform: Platform.OS });
   if (Platform.OS !== 'android') return;
   try {
-    // This URI opens the specific app's info page in Android settings
-    await Linking.openURL(`package:${packageName}`);
-    console.log('[AndroidDefaults] opened app settings for:', packageName);
-  } catch (_) {
-    console.warn('[AndroidDefaults] package: URI failed, falling back to openSettings()');
-    await Linking.openSettings();
+    await Linking.openURL(`app-settings:`);
+    console.log('[AndroidDefaults] opened app-settings for:', packageName);
+  } catch {
+    console.warn('[AndroidDefaults] app-settings: URI failed, falling back to openSettings()');
+    Linking.openSettings();
   }
 }
 

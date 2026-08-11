@@ -18,7 +18,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { SkeletonCard } from '@/components/SkeletonLoader';
 import { IntentBadge } from '@/components/IntentBadge';
-import { LayoutGrid, Settings2, ExternalLink, Info, Globe } from 'lucide-react-native';
+import { LayoutGrid, Settings2, ExternalLink, Info, Globe, Zap } from 'lucide-react-native';
 import { INTENT_TYPE_QUERY } from '@/constants/AndroidRoles';
 import { queryDeviceAppsForType, requestBecomeDefault } from '@/utils/device-apps';
 import { openDefaultAppsSettings, openAppDefaultSettings, DeviceApp } from '@/modules/android-defaults';
@@ -224,7 +224,7 @@ export default function AppsScreen() {
     return (
       <ErrorBoundary>
       <View style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: insets.top + 16 }}>
-        <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+        <View style={{ paddingHorizontal: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text
             style={{
               color: COLORS.text,
@@ -236,6 +236,35 @@ export default function AppsScreen() {
           >
             Device Apps
           </Text>
+          <AnimatedPressable
+            onPress={() => {
+              console.log('[Apps] Test Intent button pressed (non-android)');
+              router.push('/test-intent');
+            }}
+            style={{
+              height: 36,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              backgroundColor: `${COLORS.accent}18`,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1,
+              borderColor: `${COLORS.accent}35`,
+              flexDirection: 'row',
+              gap: 6,
+            }}
+          >
+            <Zap size={14} color={COLORS.accent} />
+            <Text
+              style={{
+                color: COLORS.accent,
+                fontSize: 12,
+                fontFamily: 'SpaceGrotesk_500Medium',
+              }}
+            >
+              Test
+            </Text>
+          </AnimatedPressable>
         </View>
         <EmptyState
           icon={<LayoutGrid size={32} color={COLORS.textSecondary} />}
@@ -277,6 +306,35 @@ export default function AppsScreen() {
             Device Apps
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <AnimatedPressable
+              onPress={() => {
+                console.log('[Apps] Test Intent button pressed');
+                router.push('/test-intent');
+              }}
+              style={{
+                height: 36,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+                backgroundColor: `${COLORS.accent}18`,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: `${COLORS.accent}35`,
+                flexDirection: 'row',
+                gap: 6,
+              }}
+            >
+              <Zap size={14} color={COLORS.accent} />
+              <Text
+                style={{
+                  color: COLORS.accent,
+                  fontSize: 12,
+                  fontFamily: 'SpaceGrotesk_500Medium',
+                }}
+              >
+                Test
+              </Text>
+            </AnimatedPressable>
             <AnimatedPressable
               onPress={() => {
                 console.log('[Apps] Manage PWAs pressed');

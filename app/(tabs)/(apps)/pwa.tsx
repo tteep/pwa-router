@@ -21,7 +21,7 @@ import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { EmptyState } from '@/components/EmptyState';
 import { IntentBadge } from '@/components/IntentBadge';
 import { SkeletonCard } from '@/components/SkeletonLoader';
-import { Globe, Plus, X, ChevronLeft, Trash2, ExternalLink } from 'lucide-react-native';
+import { Globe, Plus, X, ChevronLeft, Trash2, ExternalLink, Check } from 'lucide-react-native';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -115,15 +115,20 @@ function Field({
 
 function PwaCard({
   app,
+  defaultRules,
   onToggle,
   onDelete,
+  onSetDefault,
 }: {
   app: PwaApp;
+  defaultRules: Record<string, boolean>; // intentType -> isDefault
   onToggle: (id: string, active: boolean) => void;
   onDelete: (id: string, name: string) => void;
+  onSetDefault: (app: PwaApp, intentType: string) => Promise<void>;
 }) {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(10)).current;
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -141,6 +146,16 @@ function PwaCard({
     console.log('[PWA] toggle active:', app.id, val);
     onToggle(app.id, val);
   }, [app.id, onToggle]);
+
+  const handleSetDefault = useCallback(async (intentType: string) => {
+    console.log('[PWA] Set as Default pressed:', app.name, intentType);
+    setSettingDefault(intentType);
+    try {
+      await onSetDefault(app, intentType);
+    } finally {
+      setSettingDefault(null);
+    }
+  }, [app, onSetDefault]);
 
   return (
     <Animated.View style={{ opacity, transform: [{ translateY }] }}>
@@ -210,12 +225,70 @@ function PwaCard({
           </AnimatedPressable>
         </View>
 
-        {/* Intent type badges */}
+        {/* Intent type badges + Set as Default buttons */}
         {app.intent_types.length > 0 && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {app.intent_types.map((type) => (
-              <IntentBadge key={type} type={type} />
-            ))}
+          <View style={{ gap: 8 }}>
+            <Text
+              style={{
+                color: COLORS.textTertiary,
+                fontSize: 11,
+                fontFamily: 'SpaceGrotesk_500Medium',
+              }}
+            >
+              Handles
+            </Text>
+            <View style={{ gap: 6 }}>
+              {app.intent_types.map((type) => {
+                const isDefault = defaultRules[type] ?? false;
+                const isSetting = settingDefault === type;
+                const btnBg = isDefault ? `${COLORS.accent}18` : `${COLORS.primary}12`;
+                const btnBorder = isDefault ? `${COLORS.accent}40` : `${COLORS.primary}30`;
+                const btnColor = isDefault ? COLORS.accent : COLORS.primary;
+                const btnLabel = isDefault ? '✓ Default' : 'Set as Default';
+                return (
+                  <View
+                    key={type}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <IntentBadge type={type} />
+                    <AnimatedPressable
+                      onPress={() => handleSetDefault(type)}
+                      disabled={isSetting || isDefault}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderRadius: 7,
+                        backgroundColor: btnBg,
+                        borderWidth: 1,
+                        borderColor: btnBorder,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      {isSetting ? (
+                        <ActivityIndicator size="small" color={btnColor} style={{ width: 12, height: 12 }} />
+                      ) : isDefault ? (
+                        <Check size={11} color={btnColor} />
+                      ) : null}
+                      <Text
+                        style={{
+                          color: btnColor,
+                          fontSize: 11,
+                          fontFamily: 'SpaceGrotesk_500Medium',
+                        }}
+                      >
+                        {isSetting ? 'Saving…' : btnLabel}
+                      </Text>
+                    </AnimatedPressable>
+                  </View>
+                );
+              })}
+            </View>
           </View>
         )}
 
@@ -515,6 +588,8 @@ export default function PwaScreen() {
   const [apps, setApps] = useState<PwaApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  // Map of "appId:intentType" -> true when a default rule exists
+  const [defaultRulesMap, setDefaultRulesMap] = useState<Record<string, Record<string, boolean>>>({});
 
   const loadApps = useCallback(async () => {
     if (!user) {
@@ -539,9 +614,112 @@ export default function PwaScreen() {
     }
   }, [user]);
 
+  const loadDefaultRules = useCallback(async (loadedApps: PwaApp[]) => {
+    if (!user || loadedApps.length === 0) return;
+    console.log('[PWA] loading default routing_rules for', loadedApps.length, 'apps');
+    try {
+      const packageNames = loadedApps.map((a) => a.package_name);
+      const { data, error } = await supabase
+        .from('routing_rules')
+        .select('dest_package, intent_type')
+        .eq('user_id', user.id)
+        .eq('is_enabled', true)
+        .in('dest_package', packageNames);
+      if (error) throw error;
+      const map: Record<string, Record<string, boolean>> = {};
+      (data ?? []).forEach((row: { dest_package: string; intent_type: string }) => {
+        const app = loadedApps.find((a) => a.package_name === row.dest_package);
+        if (app) {
+          if (!map[app.id]) map[app.id] = {};
+          map[app.id][row.intent_type] = true;
+        }
+      });
+      console.log('[PWA] default rules map loaded');
+      setDefaultRulesMap(map);
+    } catch (err) {
+      console.error('[PWA] loadDefaultRules error:', err);
+    }
+  }, [user]);
+
   useEffect(() => {
-    loadApps();
+    loadApps().then(() => {
+      // loadDefaultRules is called after apps are set via state update
+    });
   }, [loadApps]);
+
+  // Load default rules whenever apps list changes
+  useEffect(() => {
+    if (apps.length > 0) {
+      loadDefaultRules(apps);
+    }
+  }, [apps, loadDefaultRules]);
+
+  const handleSetDefault = useCallback(async (app: PwaApp, intentType: string) => {
+    if (!user) {
+      console.log('[PWA] handleSetDefault: no user');
+      return;
+    }
+    console.log('[PWA] handleSetDefault pressed:', app.name, intentType);
+    try {
+      // Upsert routing rule for this PWA + intent type
+      const ruleName = `${app.name} → ${intentType}`;
+      const { error } = await supabase
+        .from('routing_rules')
+        .upsert(
+          {
+            user_id: user.id,
+            name: ruleName,
+            intent_type: intentType,
+            condition_field: null,
+            condition_operator: null,
+            condition_value: null,
+            dest_package: app.package_name,
+            dest_display_name: app.name,
+            dest_pwa_url: app.url,
+            dest_pwa_name: app.name,
+            priority: 100,
+            is_enabled: true,
+          },
+          {
+            onConflict: 'user_id,intent_type,dest_package',
+            ignoreDuplicates: false,
+          }
+        );
+      if (error) {
+        // If upsert fails due to missing unique constraint, try insert
+        console.warn('[PWA] upsert failed, trying insert:', error.message);
+        const { error: insertError } = await supabase.from('routing_rules').insert({
+          user_id: user.id,
+          name: ruleName,
+          intent_type: intentType,
+          condition_field: null,
+          condition_operator: null,
+          condition_value: null,
+          dest_package: app.package_name,
+          dest_display_name: app.name,
+          dest_pwa_url: app.url,
+          dest_pwa_name: app.name,
+          priority: 100,
+          is_enabled: true,
+        });
+        if (insertError) throw insertError;
+      }
+      console.log('[PWA] default rule saved for:', app.name, intentType);
+      // Update local state
+      setDefaultRulesMap((prev) => ({
+        ...prev,
+        [app.id]: { ...(prev[app.id] ?? {}), [intentType]: true },
+      }));
+      Alert.alert(
+        'Default Set',
+        `${app.name} is now your default for ${intentType} intents.`
+      );
+    } catch (err) {
+      console.error('[PWA] handleSetDefault error:', err);
+      const msg = err instanceof Error ? err.message : 'Failed to set default.';
+      Alert.alert('Error', msg);
+    }
+  }, [user]);
 
   const handleSave = useCallback(async (data: {
     name: string;
@@ -727,8 +905,10 @@ export default function PwaScreen() {
               <PwaCard
                 key={app.id}
                 app={app}
+                defaultRules={defaultRulesMap[app.id] ?? {}}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
+                onSetDefault={handleSetDefault}
               />
             ))
           )}

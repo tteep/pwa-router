@@ -7,11 +7,26 @@ export interface RoutingRule {
   condition_value: string | null;
   dest_package: string;
   dest_display_name: string;
+  dest_pwa_url?: string | null;
+  dest_pwa_name?: string | null;
   priority: number;
   is_enabled: boolean;
   user_id?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface PwaApp {
+  id: string;
+  user_id: string;
+  name: string;
+  url: string;
+  icon_url: string | null;
+  description: string | null;
+  intent_types: string[];
+  package_name: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export function evaluateRules(
@@ -53,4 +68,30 @@ export function evaluateRules(
     }
   }
   return null;
+}
+
+/**
+ * Builds the final URL to open for a PWA, appending intent-specific query params.
+ */
+export function buildPwaUrl(
+  pwaBaseUrl: string,
+  intentType: string,
+  rawData: Record<string, unknown>
+): string {
+  console.log('[RoutingEngine] buildPwaUrl', { pwaBaseUrl, intentType, rawData });
+  const base = pwaBaseUrl.replace(/\/$/, '');
+  switch (intentType) {
+    case 'email':
+      return `${base}?to=${encodeURIComponent(String(rawData.recipient ?? ''))}&subject=${encodeURIComponent(String(rawData.subject ?? ''))}`;
+    case 'geo':
+      return `${base}?q=${encodeURIComponent(String(rawData.address ?? rawData.query ?? ''))}`;
+    case 'browser':
+      return `${base}?url=${encodeURIComponent(String(rawData.url ?? ''))}`;
+    case 'tel':
+      return `${base}?tel=${encodeURIComponent(String(rawData.number ?? rawData.phone_number ?? ''))}`;
+    case 'text':
+      return `${base}?body=${encodeURIComponent(String(rawData.body ?? rawData.content ?? ''))}`;
+    default:
+      return base;
+  }
 }
