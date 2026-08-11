@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { ActivityIndicator, Linking, Platform, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -17,7 +17,7 @@ import { StatusBar } from 'expo-status-bar';
 import { WidgetProvider } from '@/contexts/WidgetContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import { RoutingProvider } from '@/contexts/RoutingContext';
+import { RoutingProvider, useRouting } from '@/contexts/RoutingContext';
 import {
   SpaceGrotesk_400Regular,
   SpaceGrotesk_500Medium,
@@ -25,8 +25,141 @@ import {
   SpaceGrotesk_700Bold,
 } from '@expo-google-fonts/space-grotesk';
 import { COLORS } from '@/constants/AppColors';
+import { supabase } from '@/utils/supabase';
+import { executeIntent } from '@/utils/device-apps';
+import { PwaApp } from '@/utils/routing-engine';
 
 SplashScreen.preventAutoHideAsync();
+
+function parseIncomingUrl(url: string): { intentType: string; rawData: Record<string, unknown> } | null {
+  if (!url) return null;
+  try {
+    // Strip the app's own deep-link scheme (gatsbyrouter://) — those are internal navigation
+    if (url.startsWith('gatsbyrouter://')) return null;
+
+    if (url.startsWith('mailto:')) {
+      const withoutScheme = url.replace('mailto:', '');
+      const [recipientPart, queryPart] = withoutScheme.split('?');
+      const params = new URLSearchParams(queryPart ?? '');
+      return {
+        intentType: 'email',
+        rawData: {
+          recipient: decodeURIComponent(recipientPart ?? ''),
+          subject: params.get('subject') ?? '',
+          body: params.get('body') ?? '',
+        },
+      };
+    }
+
+    if (url.startsWith('tel:')) {
+      return { intentType: 'tel', rawData: { number: url.replace('tel:', '') } };
+    }
+
+    if (url.startsWith('geo:')) {
+      const withoutScheme = url.replace('geo:', '');
+      const [coords, queryPart] = withoutScheme.split('?');
+      const params = new URLSearchParams(queryPart ?? '');
+      const q = params.get('q') ?? '';
+      const [lat, lng] = coords.split(',');
+      return {
+        intentType: 'geo',
+        rawData: { lat: lat ?? '0', lng: lng ?? '0', address: q, query: q },
+      };
+    }
+
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return { intentType: 'browser', rawData: { url } };
+    }
+
+    return null;
+  } catch (e) {
+    console.warn('[IntentHandler] parseIncomingUrl error', e);
+    return null;
+  }
+}
+
+function IntentHandler() {
+  const routing = useRouting();
+  const { user } = useAuth();
+  const pendingUrl = useRef<string | null>(null);
+
+  const handleUrl = React.useCallback(
+    async (url: string) => {
+      console.log('[IntentHandler] handleUrl', url);
+      if (!url) return;
+
+      if (routing.loading) {
+        console.log('[IntentHandler] rules still loading, storing pending URL');
+        pendingUrl.current = url;
+        return;
+      }
+
+      const parsed = parseIncomingUrl(url);
+      if (!parsed) {
+        console.log('[IntentHandler] URL not handled (internal or unrecognised):', url);
+        return;
+      }
+
+      const { intentType, rawData } = parsed;
+      console.log('[IntentHandler] parsed intent', { intentType, rawData });
+
+      const rule = routing.resolveIntent(intentType, rawData);
+      console.log('[IntentHandler] resolved rule', rule?.name ?? null);
+
+      let pwaApps: PwaApp[] = [];
+      if (user) {
+        try {
+          const { data, error } = await supabase
+            .from('pwa_apps')
+            .select('*')
+            .eq('user_id', user.id);
+          if (error) {
+            console.warn('[IntentHandler] failed to fetch pwa_apps', error.message);
+          } else {
+            pwaApps = (data ?? []) as PwaApp[];
+            console.log('[IntentHandler] fetched pwa_apps count:', pwaApps.length);
+          }
+        } catch (err) {
+          console.warn('[IntentHandler] pwa_apps fetch exception', err);
+        }
+      } else {
+        console.log('[IntentHandler] guest user — skipping pwa_apps fetch');
+      }
+
+      const result = await executeIntent(intentType, rawData, rule, pwaApps);
+      console.log('[IntentHandler] executeIntent result', result);
+    },
+    [routing, user]
+  );
+
+  // Flush pending URL once rules finish loading
+  useEffect(() => {
+    if (!routing.loading && pendingUrl.current) {
+      const url = pendingUrl.current;
+      pendingUrl.current = null;
+      console.log('[IntentHandler] flushing pending URL after rules loaded:', url);
+      handleUrl(url);
+    }
+  }, [routing.loading, handleUrl]);
+
+  // Cold-start: catch the URL that launched the app
+  useEffect(() => {
+    Linking.getInitialURL().then((url) => {
+      console.log('[IntentHandler] getInitialURL:', url);
+      if (url) handleUrl(url);
+    });
+
+    // Foreground: subscribe to incoming URLs while app is open
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      console.log('[IntentHandler] Linking event url:', url);
+      handleUrl(url);
+    });
+
+    return () => subscription.remove();
+  }, [handleUrl]);
+
+  return null;
+}
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -124,6 +257,7 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <AuthProvider>
             <RoutingProvider>
+              <IntentHandler />
               {Platform.OS === 'ios' ? (
                 <WidgetProvider>
                   <GestureHandlerRootView style={{ flex: 1 }}>
