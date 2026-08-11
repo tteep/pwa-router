@@ -327,10 +327,12 @@ function AddPwaModal({
         intent_types: selectedTypes,
         package_name: packageName,
       });
+      Alert.alert('PWA Added', 'Your PWA has been saved.');
       reset();
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save PWA.';
+      console.log('PWA save error:', err);
       console.error('[PWA] save error:', msg);
       setError(msg);
     } finally {
@@ -471,7 +473,7 @@ function AddPwaModal({
             </View>
           )}
 
-          {/* Save button */}
+          {/* Save button — error is shown above so it's always visible */}
           <AnimatedPressable
             onPress={handleSave}
             disabled={saving}
