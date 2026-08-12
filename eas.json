@@ -23,6 +23,16 @@
       "android": {
         "buildType": "app-bundle"
       }
+    },
+    "router": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "APP_VARIANT": "router"
+      }
     }
   }
 }

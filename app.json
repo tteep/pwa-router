@@ -33,7 +33,7 @@
       "intentFilters": [
         {
           "action": "android.intent.action.VIEW",
-          "autoVerify": true,
+          "autoVerify": false,
           "data": [
             {
               "scheme": "https"
@@ -75,6 +75,16 @@
             {
               "scheme": "geo"
             }
+          ],
+          "category": [
+            "android.intent.category.DEFAULT"
+          ]
+        },
+        {
+          "action": "android.intent.action.SEND",
+          "data": [
+            { "mimeType": "text/plain" },
+            { "mimeType": "image/*" }
           ],
           "category": [
             "android.intent.category.DEFAULT"
