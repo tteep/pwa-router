@@ -1,5 +1,17 @@
 # Gatsby Router — Build, Signing & Validation Guide
 
+## Manifest Audit Notes
+
+1. **Expo's IntentFilters plugin auto-prepends prefixes** — `@expo/config-plugins` `IntentFilters.js` automatically prepends `android.intent.action.` to the `action` field and `android.intent.category.` to each entry in the `category` array. Writing fully-qualified names (e.g. `android.intent.action.VIEW`) causes them to be doubled in the generated manifest (`android.intent.action.android.intent.action.VIEW`), which Android never matches.
+
+2. **app.json must use short-form names** — always write `"action": "VIEW"` not `"action": "android.intent.action.VIEW"`, and `"category": ["DEFAULT", "BROWSABLE"]` not `"category": ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]`.
+
+3. **android/ is gitignored and regenerated on every EAS build** — the `android/` directory is not committed to source control. EAS Build runs `expo prebuild --clean` automatically before compiling, so `app.json` is the only source-of-truth file that needs to be correct.
+
+4. **To verify locally** — run `bunx expo prebuild --platform android --clean` then inspect `android/app/src/main/AndroidManifest.xml`. Confirm the manifest contains `android.intent.action.VIEW` (not `android.intent.action.android.intent.action.VIEW`) and `android.intent.category.DEFAULT` (not `android.intent.category.android.intent.category.DEFAULT`).
+
+
+
 ## Package ID
 `com.gatsbyrouter.app`
 
