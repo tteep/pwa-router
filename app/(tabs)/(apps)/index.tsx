@@ -1,27 +1,37 @@
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
-  Switch,
-  Animated,
   RefreshControl,
-  Platform,
+  Animated,
 } from 'react-native';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { COLORS, INTENT_COLORS } from '@/constants/AppColors';
+import { COLORS } from '@/constants/AppColors';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/utils/supabase';
-import { EmptyState } from '@/components/EmptyState';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { SkeletonCard } from '@/components/SkeletonLoader';
 import { IntentBadge } from '@/components/IntentBadge';
-import { LayoutGrid, Settings2, ExternalLink, Info, Globe, Zap } from 'lucide-react-native';
-import { INTENT_TYPE_QUERY } from '@/constants/AndroidRoles';
-import { queryDeviceAppsForType, requestBecomeDefault } from '@/utils/device-apps';
-import { openDefaultAppsSettings, openAppDefaultSettings, DeviceApp } from '@/modules/android-defaults';
+import {
+  Globe,
+  Zap,
+  Plus,
+  ChevronRight,
+  Wifi,
+  Camera,
+  FolderOpen,
+  Share2,
+  User,
+  MapPin,
+  Mail,
+  Phone,
+  Map,
+} from 'lucide-react-native';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PwaApp {
   id: string;
@@ -32,20 +42,49 @@ interface PwaApp {
   is_active: boolean;
 }
 
-const INTENT_TYPES = Object.keys(INTENT_TYPE_QUERY);
-
-function isRoleBased(intentType: string): boolean {
-  return !!INTENT_TYPE_QUERY[intentType]?.role;
+interface RoutingRuleRow {
+  intent_type: string;
+  dest_pwa_url: string | null;
+  dest_pwa_name: string | null;
+  priority: number;
 }
+
+interface DestinationConfig {
+  intentType: string;
+  label: string;
+  icon: React.ReactNode;
+  pwaName: string | null;
+  pwaUrl: string | null;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const DESTINATION_INTENT_TYPES: Array<{ type: string; label: string; icon: React.ReactNode }> = [
+  { type: 'email',   label: 'Email',   icon: <Mail   size={16} color={COLORS.primary} /> },
+  { type: 'browser', label: 'Browser', icon: <Globe  size={16} color={COLORS.primary} /> },
+  { type: 'tel',     label: 'Phone',   icon: <Phone  size={16} color={COLORS.primary} /> },
+  { type: 'geo',     label: 'Maps',    icon: <Map    size={16} color={COLORS.primary} /> },
+  { type: 'text',    label: 'Share',   icon: <Share2 size={16} color={COLORS.primary} /> },
+];
+
+const NATIVE_CAPABILITIES = [
+  { label: 'Camera',   icon: <Camera    size={15} color={COLORS.textSecondary} /> },
+  { label: 'Files',    icon: <FolderOpen size={15} color={COLORS.textSecondary} /> },
+  { label: 'Share',    icon: <Share2    size={15} color={COLORS.textSecondary} /> },
+  { label: 'Contacts', icon: <User      size={15} color={COLORS.textSecondary} /> },
+  { label: 'Location', icon: <MapPin    size={15} color={COLORS.textSecondary} /> },
+];
+
+// ─── Animated list item ───────────────────────────────────────────────────────
 
 function AnimatedListItem({ index, children }: { index: number; children: React.ReactNode }) {
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(12)).current;
+  const translateY = useRef(new Animated.Value(10)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: 350, delay: index * 50, useNativeDriver: true }),
-      Animated.timing(translateY, { toValue: 0, duration: 350, delay: index * 50, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 320, delay: index * 45, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 320, delay: index * 45, useNativeDriver: true }),
     ]).start();
   }, []);
 
@@ -56,806 +95,628 @@ function AnimatedListItem({ index, children }: { index: number; children: React.
   );
 }
 
-export default function AppsScreen() {
+// ─── Section header ───────────────────────────────────────────────────────────
+
+function SectionHeader({
+  title,
+  action,
+  onAction,
+}: {
+  title: string;
+  action?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+      }}
+    >
+      <Text
+        style={{
+          color: COLORS.textSecondary,
+          fontSize: 11,
+          fontFamily: 'SpaceGrotesk_600SemiBold',
+          letterSpacing: 0.9,
+          textTransform: 'uppercase',
+        }}
+      >
+        {title}
+      </Text>
+      {action && onAction && (
+        <AnimatedPressable
+          onPress={onAction}
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            borderRadius: 7,
+            backgroundColor: `${COLORS.primary}15`,
+            borderWidth: 1,
+            borderColor: `${COLORS.primary}35`,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          <Text
+            style={{
+              color: COLORS.primary,
+              fontSize: 11,
+              fontFamily: 'SpaceGrotesk_500Medium',
+            }}
+          >
+            {action}
+          </Text>
+          <ChevronRight size={11} color={COLORS.primary} />
+        </AnimatedPressable>
+      )}
+    </View>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
+export default function DestinationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [grouped, setGrouped] = useState<Record<string, DeviceApp[]>>({});
-  const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
-  const [togglingKey, setTogglingKey] = useState<string | null>(null);
-  const [requestingType, setRequestingType] = useState<string | null>(null);
   const [pwaApps, setPwaApps] = useState<PwaApp[]>([]);
-  const [pwaLoading, setPwaLoading] = useState(true);
+  const [destinations, setDestinations] = useState<DestinationConfig[]>([]);
 
-  const loadDeviceApps = useCallback(async () => {
-    console.log('[Apps] loadDeviceApps start');
-    const results: Record<string, DeviceApp[]> = {};
-    await Promise.all(
-      INTENT_TYPES.map(async (type) => {
-        const apps = await queryDeviceAppsForType(type);
-        if (apps.length > 0) results[type] = apps;
-      })
-    );
-    console.log('[Apps] loadDeviceApps done, types found:', Object.keys(results));
-    setGrouped(results);
-    return results;
-  }, []);
-
-  const loadEnabledPrefs = useCallback(async (groupedApps: Record<string, DeviceApp[]>) => {
-    if (!user) return;
-    console.log('[Apps] loadEnabledPrefs for user:', user.id);
-    try {
-      const { data, error } = await supabase
-        .from('installed_apps')
-        .select('package_name, intent_type, is_enabled')
-        .eq('user_id', user.id);
-      if (error) throw error;
-      const map: Record<string, boolean> = {};
-      Object.entries(groupedApps).forEach(([type, apps]) => {
-        apps.forEach((app) => {
-          map[`${type}:${app.packageName}`] = true;
-        });
-      });
-      (data ?? []).forEach((row: { package_name: string; intent_type: string; is_enabled: boolean }) => {
-        map[`${row.intent_type}:${row.package_name}`] = row.is_enabled;
-      });
-      setEnabledMap(map);
-    } catch (err) {
-      console.error('[Apps] loadEnabledPrefs error', err);
-    }
-  }, [user]);
-
-  const loadPwaApps = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (!user) {
-      setPwaLoading(false);
+      console.log('[Destinations] no user, skipping load');
+      setLoading(false);
       return;
     }
-    console.log('[Apps] loadPwaApps for user:', user.id);
+    console.log('[Destinations] loadData for user:', user.id);
+
     try {
-      const { data, error } = await supabase
-        .from('pwa_apps')
-        .select('id, name, url, intent_types, package_name, is_active')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      console.log('[Apps] loaded', data?.length ?? 0, 'pwa apps');
-      setPwaApps(data ?? []);
+      const [pwaRes, rulesRes] = await Promise.all([
+        supabase
+          .from('pwa_apps')
+          .select('id, name, url, intent_types, package_name, is_active')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('routing_rules')
+          .select('intent_type, dest_pwa_url, dest_pwa_name, priority')
+          .eq('user_id', user.id)
+          .eq('is_enabled', true)
+          .not('dest_pwa_url', 'is', null)
+          .order('priority', { ascending: false }),
+      ]);
+
+      if (pwaRes.error) throw pwaRes.error;
+      if (rulesRes.error) throw rulesRes.error;
+
+      const apps: PwaApp[] = pwaRes.data ?? [];
+      const rules: RoutingRuleRow[] = rulesRes.data ?? [];
+
+      console.log('[Destinations] loaded', apps.length, 'pwa apps,', rules.length, 'rules');
+
+      // For each intent type, find the highest-priority rule with dest_pwa_url
+      const configs: DestinationConfig[] = DESTINATION_INTENT_TYPES.map(({ type, label, icon }) => {
+        const rule = rules.find((r) => r.intent_type === type);
+        if (rule && rule.dest_pwa_url) {
+          return {
+            intentType: type,
+            label,
+            icon,
+            pwaName: rule.dest_pwa_name ?? rule.dest_pwa_url,
+            pwaUrl: rule.dest_pwa_url,
+          };
+        }
+        // Fallback: check pwaApps for a matching active app
+        const fallbackApp = apps.find((a) => a.intent_types.includes(type));
+        if (fallbackApp) {
+          return {
+            intentType: type,
+            label,
+            icon,
+            pwaName: fallbackApp.name,
+            pwaUrl: fallbackApp.url,
+          };
+        }
+        return { intentType: type, label, icon, pwaName: null, pwaUrl: null };
+      });
+
+      setPwaApps(apps);
+      setDestinations(configs);
     } catch (err) {
-      console.error('[Apps] loadPwaApps error:', err);
+      console.error('[Destinations] loadData error:', err);
     } finally {
-      setPwaLoading(false);
+      setLoading(false);
     }
   }, [user]);
-
-  const loadAll = useCallback(async () => {
-    const groupedApps = await loadDeviceApps();
-    await Promise.all([loadEnabledPrefs(groupedApps), loadPwaApps()]);
-    setLoading(false);
-  }, [loadDeviceApps, loadEnabledPrefs, loadPwaApps]);
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    loadData();
+  }, [loadData]);
 
   const onRefresh = useCallback(async () => {
-    console.log('[Apps] onRefresh');
+    console.log('[Destinations] onRefresh');
     setRefreshing(true);
-    await loadAll();
+    await loadData();
     setRefreshing(false);
-  }, [loadAll]);
+  }, [loadData]);
 
-  const handleToggle = useCallback(async (intentType: string, app: DeviceApp, enabled: boolean) => {
-    const key = `${intentType}:${app.packageName}`;
-    console.log('[Apps] toggle app:', key, enabled);
-    if (!user) return;
-    setTogglingKey(key);
-    setEnabledMap((prev) => ({ ...prev, [key]: enabled }));
-    try {
-      const { data: existing } = await supabase
-        .from('installed_apps')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('package_name', app.packageName)
-        .eq('intent_type', intentType)
-        .maybeSingle();
+  const handleAddPwa = useCallback(() => {
+    console.log('[Destinations] Add PWA button pressed');
+    router.push('/(tabs)/(apps)/pwa');
+  }, [router]);
 
-      if (existing) {
-        await supabase
-          .from('installed_apps')
-          .update({ is_enabled: enabled })
-          .eq('id', existing.id);
-      } else {
-        await supabase.from('installed_apps').insert({
-          user_id: user.id,
-          display_name: app.label,
-          package_name: app.packageName,
-          intent_type: intentType,
-          is_enabled: enabled,
-        });
-      }
-      console.log('[Apps] toggle saved:', key, enabled);
-    } catch (err) {
-      console.error('[Apps] toggle error', err);
-      setEnabledMap((prev) => ({ ...prev, [key]: !enabled }));
-    } finally {
-      setTogglingKey(null);
-    }
-  }, [user]);
+  const handleManagePwa = useCallback(() => {
+    console.log('[Destinations] Manage PWAs pressed');
+    router.push('/(tabs)/(apps)/pwa');
+  }, [router]);
 
-  const handleSetDefault = useCallback(async (intentType: string) => {
-    console.log('[Apps] Set as Default pressed for type:', intentType);
-    setRequestingType(intentType);
-    try {
-      const result = await requestBecomeDefault(intentType);
-      console.log('[Apps] requestBecomeDefault result:', intentType, result);
-    } catch (err) {
-      console.error('[Apps] requestBecomeDefault error', err);
-    } finally {
-      setRequestingType(null);
-    }
-  }, []);
+  const handleConfigureDestination = useCallback((intentType: string) => {
+    console.log('[Destinations] Configure destination pressed:', intentType);
+    router.push('/(tabs)/(apps)/pwa');
+  }, [router]);
 
-  const handleOpenDefaultSettings = useCallback(async () => {
-    console.log('[Apps] Open Default Apps Settings pressed');
-    try {
-      await openDefaultAppsSettings();
-    } catch (err) {
-      console.error('[Apps] openDefaultAppsSettings error', err);
-    }
-  }, []);
-
-  const handleOpenAppSettings = useCallback(async (packageName: string) => {
-    console.log('[Apps] Open App Default Settings pressed:', packageName);
-    try {
-      await openAppDefaultSettings(packageName);
-    } catch (err) {
-      console.error('[Apps] openAppDefaultSettings error', err);
-    }
-  }, []);
-
-  const groupEntries = Object.entries(grouped);
-  const totalApps = groupEntries.reduce((sum, [, apps]) => sum + apps.length, 0);
-
-  if (Platform.OS !== 'android') {
-    return (
-      <ErrorBoundary>
-      <View style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: insets.top + 16 }}>
-        <View style={{ paddingHorizontal: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: 26,
-              fontWeight: '700',
-              fontFamily: 'SpaceGrotesk_700Bold',
-              letterSpacing: -0.4,
-            }}
-          >
-            Device Apps
-          </Text>
-          <AnimatedPressable
-            onPress={() => {
-              console.log('[Apps] Test Intent button pressed (non-android)');
-              router.push('/test-intent');
-            }}
-            style={{
-              height: 36,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-              backgroundColor: `${COLORS.accent}18`,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderWidth: 1,
-              borderColor: `${COLORS.accent}35`,
-              flexDirection: 'row',
-              gap: 6,
-            }}
-          >
-            <Zap size={14} color={COLORS.accent} />
-            <Text
-              style={{
-                color: COLORS.accent,
-                fontSize: 12,
-                fontFamily: 'SpaceGrotesk_500Medium',
-              }}
-            >
-              Test
-            </Text>
-          </AnimatedPressable>
-        </View>
-        <EmptyState
-          icon={<LayoutGrid size={32} color={COLORS.textSecondary} />}
-          title="Android only"
-          subtitle="Default app management requires an Android device with PackageManager access"
-        />
-      </View>
-      </ErrorBoundary>
-    );
-  }
+  const handleTestIntent = useCallback(() => {
+    console.log('[Destinations] Test Intent button pressed');
+    router.push('/test-intent');
+  }, [router]);
 
   return (
     <ErrorBoundary>
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
-      {/* Header */}
-      <View
-        style={{
-          paddingTop: insets.top + 16,
-          paddingHorizontal: 16,
-          paddingBottom: 12,
-        }}
-      >
+      <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+        {/* Header */}
         <View
           style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+            paddingTop: insets.top + 16,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
           }}
         >
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: 26,
-              fontWeight: '700',
-              fontFamily: 'SpaceGrotesk_700Bold',
-              letterSpacing: -0.4,
-            }}
-          >
-            Device Apps
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <AnimatedPressable
-              onPress={() => {
-                console.log('[Apps] Test Intent button pressed');
-                router.push('/test-intent');
-              }}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text
               style={{
-                height: 36,
-                paddingHorizontal: 12,
-                borderRadius: 10,
-                backgroundColor: `${COLORS.accent}18`,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderColor: `${COLORS.accent}35`,
-                flexDirection: 'row',
-                gap: 6,
+                color: COLORS.text,
+                fontSize: 26,
+                fontWeight: '700',
+                fontFamily: 'SpaceGrotesk_700Bold',
+                letterSpacing: -0.4,
               }}
             >
-              <Zap size={14} color={COLORS.accent} />
-              <Text
+              Destinations
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <AnimatedPressable
+                onPress={handleTestIntent}
                 style={{
-                  color: COLORS.accent,
-                  fontSize: 12,
-                  fontFamily: 'SpaceGrotesk_500Medium',
+                  height: 36,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  backgroundColor: `${COLORS.accent}18`,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: `${COLORS.accent}35`,
+                  flexDirection: 'row',
+                  gap: 6,
                 }}
               >
-                Test
-              </Text>
-            </AnimatedPressable>
-            <AnimatedPressable
-              onPress={() => {
-                console.log('[Apps] Manage PWAs pressed');
-                router.push('/(tabs)/(apps)/pwa');
-              }}
-              style={{
-                height: 36,
-                paddingHorizontal: 12,
-                borderRadius: 10,
-                backgroundColor: `${COLORS.primary}18`,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderColor: `${COLORS.primary}35`,
-                flexDirection: 'row',
-                gap: 6,
-              }}
-            >
-              <Globe size={14} color={COLORS.primary} />
-              <Text
-                style={{
-                  color: COLORS.primary,
-                  fontSize: 12,
-                  fontFamily: 'SpaceGrotesk_500Medium',
-                }}
-              >
-                Manage PWAs
-              </Text>
-            </AnimatedPressable>
-            <AnimatedPressable
-              onPress={handleOpenDefaultSettings}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                backgroundColor: COLORS.surfaceSecondary,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderColor: COLORS.border,
-              }}
-            >
-              <Settings2 size={18} color={COLORS.textSecondary} />
-            </AnimatedPressable>
-          </View>
-        </View>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingTop: 4,
-          paddingBottom: 120,
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={COLORS.primary}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Info banner */}
-        <View
-          style={{
-            backgroundColor: `${COLORS.primary}12`,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: `${COLORS.primary}30`,
-            paddingHorizontal: 14,
-            paddingVertical: 10,
-            marginBottom: 20,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <LayoutGrid size={14} color={COLORS.primary} />
-          <Text
-            style={{
-              flex: 1,
-              color: COLORS.primary,
-              fontSize: 12,
-              fontFamily: 'SpaceGrotesk_400Regular',
-              lineHeight: 17,
-            }}
-          >
-            Apps shown are installed on this device and can handle each intent type
-          </Text>
-        </View>
-
-        {loading ? (
-          <>
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
-          </>
-        ) : totalApps === 0 ? (
-          <EmptyState
-            icon={<LayoutGrid size={32} color={COLORS.primary} />}
-            title="No apps found"
-            subtitle="No installed apps were found that can handle the supported intent types"
-          />
-        ) : (
-          groupEntries.map(([type, typeApps], groupIndex) => {
-            const color = INTENT_COLORS[type] ?? COLORS.primary;
-            const isRequesting = requestingType === type;
-            const roleBased = isRoleBased(type);
-
-            return (
-              <View key={type} style={{ marginBottom: 24 }}>
-                {/* Section header */}
-                <View
+                <Zap size={14} color={COLORS.accent} />
+                <Text
                   style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 8,
+                    color: COLORS.accent,
+                    fontSize: 12,
+                    fontFamily: 'SpaceGrotesk_500Medium',
                   }}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View
-                      style={{
-                        width: 3,
-                        height: 16,
-                        borderRadius: 2,
-                        backgroundColor: color,
-                      }}
-                    />
-                    <IntentBadge type={type} />
-                    <Text
-                      style={{
-                        color: COLORS.textSecondary,
-                        fontSize: 12,
-                        fontFamily: 'SpaceGrotesk_400Regular',
-                      }}
-                    >
-                      {typeApps.length}
-                      {' '}
-                      app
-                      {typeApps.length !== 1 ? 's' : ''}
-                    </Text>
-                  </View>
+                  Test
+                </Text>
+              </AnimatedPressable>
+              <AnimatedPressable
+                onPress={handleAddPwa}
+                style={{
+                  height: 36,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  backgroundColor: COLORS.primary,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  gap: 6,
+                }}
+              >
+                <Plus size={14} color="#fff" />
+                <Text
+                  style={{
+                    color: '#fff',
+                    fontSize: 12,
+                    fontFamily: 'SpaceGrotesk_600SemiBold',
+                  }}
+                >
+                  Add PWA
+                </Text>
+              </AnimatedPressable>
+            </View>
+          </View>
+        </View>
 
-                  {roleBased && (
-                    <AnimatedPressable
-                      onPress={() => handleSetDefault(type)}
-                      style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
-                        borderRadius: 7,
-                        backgroundColor: isRequesting ? `${color}30` : `${color}18`,
-                        borderWidth: 1,
-                        borderColor: `${color}40`,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 5,
-                      }}
-                    >
-                      <ExternalLink size={11} color={color} />
-                      <Text
-                        style={{
-                          color: color,
-                          fontSize: 11,
-                          fontFamily: 'SpaceGrotesk_500Medium',
-                        }}
-                      >
-                        {isRequesting ? 'Requesting…' : 'Set Default'}
-                      </Text>
-                    </AnimatedPressable>
-                  )}
-                </View>
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingTop: 4,
+            paddingBottom: 120,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={COLORS.primary}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ── DESTINATIONS section ── */}
+          <View style={{ marginBottom: 28 }}>
+            <SectionHeader title="Destinations" />
 
-                {/* Non-role banner */}
-                {!roleBased && (
-                  <View
-                    style={{
-                      backgroundColor: `${COLORS.warning}10`,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: `${COLORS.warning}25`,
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      marginBottom: 8,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <Info size={13} color={COLORS.warning} />
-                    <Text
-                      style={{
-                        flex: 1,
-                        color: COLORS.warning,
-                        fontSize: 11,
-                        fontFamily: 'SpaceGrotesk_400Regular',
-                        lineHeight: 16,
-                      }}
-                    >
-                      Tap an app to manage its default link handling in Android Settings
-                    </Text>
-                  </View>
-                )}
+            {loading ? (
+              <>
+                <SkeletonCard />
+                <SkeletonCard />
+              </>
+            ) : (
+              destinations.map((dest, idx) => {
+                const isConfigured = dest.pwaName !== null;
+                const dotColor = isConfigured ? COLORS.accent : COLORS.textTertiary;
 
-                {/* App rows */}
-                {typeApps.map((app, appIndex) => {
-                  const key = `${type}:${app.packageName}`;
-                  const isEnabled = enabledMap[key] ?? true;
-                  const isToggling = togglingKey === key;
-
-                  const rowContent = (
+                return (
+                  <AnimatedListItem key={dest.intentType} index={idx}>
                     <View
                       style={{
                         backgroundColor: COLORS.surface,
-                        borderRadius: 10,
+                        borderRadius: 12,
                         borderWidth: 1,
                         borderColor: COLORS.border,
                         paddingHorizontal: 14,
-                        paddingVertical: 12,
-                        marginBottom: 6,
+                        paddingVertical: 13,
+                        marginBottom: 8,
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 12,
                       }}
                     >
-                      {/* Default dot */}
+                      {/* Intent icon */}
                       <View
                         style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: app.isDefault ? COLORS.accent : COLORS.surfaceElevated,
-                          borderWidth: app.isDefault ? 0 : 1,
-                          borderColor: COLORS.border,
+                          width: 36,
+                          height: 36,
+                          borderRadius: 9,
+                          backgroundColor: `${COLORS.primary}15`,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 1,
+                          borderColor: `${COLORS.primary}25`,
                         }}
-                      />
+                      >
+                        {dest.icon}
+                      </View>
+
                       {/* Labels */}
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <Text
+                          style={{
+                            color: COLORS.text,
+                            fontSize: 14,
+                            fontFamily: 'SpaceGrotesk_600SemiBold',
+                          }}
+                        >
+                          {dest.label}
+                        </Text>
+                        {isConfigured && dest.pwaUrl ? (
+                          <Text
+                            style={{
+                              color: COLORS.textTertiary,
+                              fontSize: 11,
+                              fontFamily: 'SpaceGrotesk_400Regular',
+                            }}
+                            numberOfLines={1}
+                          >
+                            {dest.pwaUrl}
+                          </Text>
+                        ) : null}
+                      </View>
+
+                      {/* Status + configure */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ alignItems: 'flex-end', gap: 3 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <View
+                              style={{
+                                width: 7,
+                                height: 7,
+                                borderRadius: 4,
+                                backgroundColor: dotColor,
+                              }}
+                            />
+                            <Text
+                              style={{
+                                color: isConfigured ? COLORS.text : COLORS.textTertiary,
+                                fontSize: 13,
+                                fontFamily: 'SpaceGrotesk_500Medium',
+                              }}
+                            >
+                              {isConfigured ? dest.pwaName : 'Not configured'}
+                            </Text>
+                          </View>
+                        </View>
+                        <AnimatedPressable
+                          onPress={() => handleConfigureDestination(dest.intentType)}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 7,
+                            backgroundColor: `${COLORS.primary}15`,
+                            borderWidth: 1,
+                            borderColor: `${COLORS.primary}35`,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: COLORS.primary,
+                              fontSize: 11,
+                              fontFamily: 'SpaceGrotesk_500Medium',
+                            }}
+                          >
+                            Configure
+                          </Text>
+                        </AnimatedPressable>
+                      </View>
+                    </View>
+                  </AnimatedListItem>
+                );
+              })
+            )}
+          </View>
+
+          {/* ── TRUSTED PWAs section ── */}
+          <View style={{ marginBottom: 28 }}>
+            <SectionHeader title="Trusted PWAs" action="Manage" onAction={handleManagePwa} />
+
+            {loading ? (
+              <SkeletonCard />
+            ) : pwaApps.length === 0 ? (
+              <AnimatedPressable
+                onPress={handleAddPwa}
+              >
+                <View
+                  style={{
+                    backgroundColor: COLORS.surface,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    borderStyle: 'dashed',
+                    paddingHorizontal: 14,
+                    paddingVertical: 18,
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <Globe size={22} color={COLORS.textTertiary} />
+                  <Text
+                    style={{
+                      color: COLORS.textTertiary,
+                      fontSize: 13,
+                      fontFamily: 'SpaceGrotesk_400Regular',
+                      textAlign: 'center',
+                    }}
+                  >
+                    No PWA apps yet. Tap to add a routing destination.
+                  </Text>
+                </View>
+              </AnimatedPressable>
+            ) : (
+              pwaApps.map((app, idx) => (
+                <AnimatedListItem key={app.id} index={idx}>
+                  <View
+                    style={{
+                      backgroundColor: COLORS.surface,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: COLORS.border,
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      marginBottom: 8,
+                      gap: 8,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View
+                        style={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: 9,
+                          backgroundColor: `${COLORS.primary}15`,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 1,
+                          borderColor: `${COLORS.primary}25`,
+                        }}
+                      >
+                        <Globe size={16} color={COLORS.primary} />
+                      </View>
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text
                           style={{
                             color: COLORS.text,
                             fontSize: 14,
-                            fontFamily: 'SpaceGrotesk_500Medium',
+                            fontFamily: 'SpaceGrotesk_600SemiBold',
                           }}
+                          numberOfLines={1}
                         >
-                          {app.label}
+                          {app.name}
                         </Text>
                         <Text
                           style={{
                             color: COLORS.textTertiary,
                             fontSize: 11,
                             fontFamily: 'SpaceGrotesk_400Regular',
-                            letterSpacing: 0.1,
                           }}
                           numberOfLines={1}
                         >
-                          {app.packageName}
+                          {app.url}
                         </Text>
                       </View>
-                      {/* Default badge */}
-                      {app.isDefault && (
-                        <View
+                      <View
+                        style={{
+                          paddingHorizontal: 7,
+                          paddingVertical: 3,
+                          borderRadius: 5,
+                          backgroundColor: `${COLORS.accent}18`,
+                        }}
+                      >
+                        <Text
                           style={{
-                            paddingHorizontal: 7,
-                            paddingVertical: 3,
-                            borderRadius: 5,
-                            backgroundColor: `${COLORS.accent}20`,
+                            color: COLORS.accent,
+                            fontSize: 10,
+                            fontFamily: 'SpaceGrotesk_600SemiBold',
                           }}
                         >
-                          <Text
-                            style={{
-                              color: COLORS.accent,
-                              fontSize: 10,
-                              fontFamily: 'SpaceGrotesk_600SemiBold',
-                            }}
-                          >
-                            DEFAULT
-                          </Text>
-                        </View>
-                      )}
-                      {/* Non-role: settings icon; role-based: toggle switch */}
-                      {roleBased ? (
-                        <Switch
-                          value={isEnabled}
-                          onValueChange={(val) => {
-                            console.log('[Apps] switch toggled:', key, val);
-                            handleToggle(type, app, val);
-                          }}
-                          disabled={isToggling}
-                          trackColor={{ false: COLORS.surfaceElevated, true: `${color}80` }}
-                          thumbColor={isEnabled ? color : COLORS.textTertiary}
-                          ios_backgroundColor={COLORS.surfaceElevated}
-                        />
-                      ) : (
-                        <View
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 8,
-                            backgroundColor: COLORS.surfaceSecondary,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderWidth: 1,
-                            borderColor: COLORS.border,
-                          }}
-                        >
-                          <Settings2 size={14} color={COLORS.textSecondary} />
-                        </View>
-                      )}
+                          ACTIVE
+                        </Text>
+                      </View>
                     </View>
-                  );
-
-                  return (
-                    <AnimatedListItem key={key} index={groupIndex * 4 + appIndex}>
-                      {roleBased ? (
-                        rowContent
-                      ) : (
-                        <AnimatedPressable
-                          onPress={() => handleOpenAppSettings(app.packageName)}
-                        >
-                          {rowContent}
-                        </AnimatedPressable>
-                      )}
-                    </AnimatedListItem>
-                  );
-                })}
-              </View>
-            );
-          })
-        )}
-
-        {/* ── PWA Apps section ── */}
-        <View style={{ marginTop: totalApps > 0 || loading ? 8 : 0 }}>
-          {/* Section header */}
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 10,
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View
-                style={{
-                  width: 3,
-                  height: 16,
-                  borderRadius: 2,
-                  backgroundColor: COLORS.primary,
-                }}
-              />
-              <Globe size={14} color={COLORS.primary} />
-              <Text
-                style={{
-                  color: COLORS.text,
-                  fontSize: 13,
-                  fontFamily: 'SpaceGrotesk_600SemiBold',
-                }}
-              >
-                PWA Apps
-              </Text>
-              {!pwaLoading && (
-                <Text
-                  style={{
-                    color: COLORS.textSecondary,
-                    fontSize: 12,
-                    fontFamily: 'SpaceGrotesk_400Regular',
-                  }}
-                >
-                  {pwaApps.length}
-                  {' '}
-                  app
-                  {pwaApps.length !== 1 ? 's' : ''}
-                </Text>
-              )}
-            </View>
-            <AnimatedPressable
-              onPress={() => {
-                console.log('[Apps] PWA section manage pressed');
-                router.push('/(tabs)/(apps)/pwa');
-              }}
-              style={{
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: 7,
-                backgroundColor: `${COLORS.primary}18`,
-                borderWidth: 1,
-                borderColor: `${COLORS.primary}40`,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 5,
-              }}
-            >
-              <ExternalLink size={11} color={COLORS.primary} />
-              <Text
-                style={{
-                  color: COLORS.primary,
-                  fontSize: 11,
-                  fontFamily: 'SpaceGrotesk_500Medium',
-                }}
-              >
-                Manage
-              </Text>
-            </AnimatedPressable>
+                    {app.intent_types.length > 0 && (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, paddingLeft: 44 }}>
+                        {app.intent_types.map((type) => (
+                          <IntentBadge key={type} type={type} />
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                </AnimatedListItem>
+              ))
+            )}
           </View>
 
-          {pwaLoading ? (
-            <SkeletonCard />
-          ) : pwaApps.length === 0 ? (
-            <AnimatedPressable
-              onPress={() => {
-                console.log('[Apps] PWA empty state add pressed');
-                router.push('/(tabs)/(apps)/pwa');
+          {/* ── NATIVE CAPABILITIES section ── */}
+          <View style={{ marginBottom: 28 }}>
+            <SectionHeader title="Native Capabilities" />
+            <View
+              style={{
+                backgroundColor: COLORS.surface,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                overflow: 'hidden',
               }}
             >
-              <View
-                style={{
-                  backgroundColor: COLORS.surface,
-                  borderRadius: 10,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderStyle: 'dashed',
-                  paddingHorizontal: 14,
-                  paddingVertical: 16,
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <Globe size={20} color={COLORS.textTertiary} />
-                <Text
-                  style={{
-                    color: COLORS.textTertiary,
-                    fontSize: 13,
-                    fontFamily: 'SpaceGrotesk_400Regular',
-                    textAlign: 'center',
-                  }}
-                >
-                  No PWA apps yet. Tap to add a PWA routing target.
-                </Text>
-              </View>
-            </AnimatedPressable>
-          ) : (
-            pwaApps.map((app, idx) => (
-              <AnimatedListItem key={app.id} index={idx}>
-                <View
-                  style={{
-                    backgroundColor: COLORS.surface,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                    marginBottom: 6,
-                    gap: 8,
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {NATIVE_CAPABILITIES.map((cap, idx) => {
+                const isLast = idx === NATIVE_CAPABILITIES.length - 1;
+                return (
+                  <View
+                    key={cap.label}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      borderBottomWidth: isLast ? 0 : 1,
+                      borderBottomColor: COLORS.border,
+                      gap: 12,
+                    }}
+                  >
                     <View
                       style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: COLORS.primary,
+                        width: 30,
+                        height: 30,
+                        borderRadius: 8,
+                        backgroundColor: COLORS.surfaceSecondary,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
                       }}
-                    />
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text
-                        style={{
-                          color: COLORS.text,
-                          fontSize: 14,
-                          fontFamily: 'SpaceGrotesk_500Medium',
-                        }}
-                        numberOfLines={1}
-                      >
-                        {app.name}
-                      </Text>
-                      <Text
-                        style={{
-                          color: COLORS.textTertiary,
-                          fontSize: 11,
-                          fontFamily: 'SpaceGrotesk_400Regular',
-                        }}
-                        numberOfLines={1}
-                      >
-                        {app.url}
-                      </Text>
+                    >
+                      {cap.icon}
                     </View>
+                    <Text
+                      style={{
+                        flex: 1,
+                        color: COLORS.text,
+                        fontSize: 14,
+                        fontFamily: 'SpaceGrotesk_500Medium',
+                      }}
+                    >
+                      {cap.label}
+                    </Text>
+                    <Text
+                      style={{
+                        color: COLORS.textTertiary,
+                        fontSize: 11,
+                        fontFamily: 'SpaceGrotesk_400Regular',
+                      }}
+                    >
+                      Via bridge
+                    </Text>
                     <View
                       style={{
                         paddingHorizontal: 7,
                         paddingVertical: 3,
                         borderRadius: 5,
-                        backgroundColor: `${COLORS.primary}20`,
+                        backgroundColor: `${COLORS.accent}15`,
                       }}
                     >
                       <Text
                         style={{
-                          color: COLORS.primary,
+                          color: COLORS.accent,
                           fontSize: 10,
                           fontFamily: 'SpaceGrotesk_600SemiBold',
                         }}
                       >
-                        PWA
+                        AVAILABLE
                       </Text>
                     </View>
                   </View>
-                  {app.intent_types.length > 0 && (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, paddingLeft: 18 }}>
-                      {app.intent_types.map((type) => (
-                        <IntentBadge key={type} type={type} />
-                      ))}
-                    </View>
-                  )}
-                </View>
-              </AnimatedListItem>
-            ))
-          )}
-        </View>
-      </ScrollView>
-    </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* ── Info banner ── */}
+          <View
+            style={{
+              backgroundColor: `${COLORS.primary}10`,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: `${COLORS.primary}28`,
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <Wifi size={15} color={COLORS.primary} />
+            <Text
+              style={{
+                flex: 1,
+                color: COLORS.primary,
+                fontSize: 12,
+                fontFamily: 'SpaceGrotesk_400Regular',
+                lineHeight: 18,
+              }}
+            >
+              Android intents → Gatsby Router → your configured Gatsby PWA
+            </Text>
+          </View>
+        </ScrollView>
+      </View>
     </ErrorBoundary>
   );
 }

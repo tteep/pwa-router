@@ -5,7 +5,6 @@ import {
   ScrollView,
   Animated,
   RefreshControl,
-  Platform,
 } from 'react-native';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,11 +26,30 @@ import {
   Clock,
   FlaskConical,
   History,
-  Smartphone,
   ChevronRight,
+  Wifi,
+  Mail,
+  Globe,
+  MapPin,
 } from 'lucide-react-native';
-import { ANDROID_ROLES, ANDROID_ROLE_LABELS } from '@/constants/AndroidRoles';
-import { checkRole, RoleStatus } from '@/modules/android-defaults';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface DashboardStats {
+  rulesCount: number;
+  appsCount: number;
+  todayIntentsCount: number;
+  avgLatencyMs: number;
+}
+
+interface BridgeStatusRow {
+  intentType: string;
+  label: string;
+  icon: React.ReactNode;
+  pwaName: string | null;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function AnimatedListItem({ index, children }: { index: number; children: React.ReactNode }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -61,20 +79,7 @@ function AnimatedListItem({ index, children }: { index: number; children: React.
   );
 }
 
-// Roles to show in the compact status card
-const DASHBOARD_ROLES = [
-  ANDROID_ROLES.BROWSER,
-  ANDROID_ROLES.EMAIL,
-  ANDROID_ROLES.DIALER,
-  ANDROID_ROLES.SMS,
-] as const;
-
-interface DashboardStats {
-  rulesCount: number;
-  appsCount: number;
-  todayIntentsCount: number;
-  avgLatencyMs: number;
-}
+// ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -91,7 +96,7 @@ export default function DashboardScreen() {
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [roleStatuses, setRoleStatuses] = useState<Record<string, RoleStatus>>({});
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatusRow[]>([]);
 
   const fetchData = useCallback(async () => {
     console.log('[Dashboard] fetchData', { userId: user?.id });
@@ -105,15 +110,16 @@ export default function DashboardScreen() {
     const todayIso = todayStart.toISOString();
 
     try {
-      const [rulesRes, appsRes, historyRes, todayRes] = await Promise.all([
+      const [rulesRes, appsRes, historyRes, todayRes, bridgeRes] = await Promise.all([
         supabase
           .from('routing_rules')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id),
         supabase
-          .from('installed_apps')
+          .from('pwa_apps')
           .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id),
+          .eq('user_id', user.id)
+          .eq('is_active', true),
         supabase
           .from('intent_history')
           .select('id, intent_type, dest_display_name, result, latency_ms, created_at')
@@ -125,6 +131,14 @@ export default function DashboardScreen() {
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .gte('created_at', todayIso),
+        supabase
+          .from('routing_rules')
+          .select('intent_type, dest_pwa_url, dest_pwa_name, priority')
+          .eq('user_id', user.id)
+          .eq('is_enabled', true)
+          .not('dest_pwa_url', 'is', null)
+          .in('intent_type', ['email', 'browser', 'geo'])
+          .order('priority', { ascending: false }),
       ]);
 
       const rulesCount = rulesRes.count ?? 0;
@@ -140,7 +154,6 @@ export default function DashboardScreen() {
         created_at: string;
       }>;
 
-      // Map Supabase column names to IntentHistoryItem shape
       const mappedHistory: IntentHistoryItem[] = historyRows.map((row) => ({
         id: row.id,
         intent_type: row.intent_type,
@@ -159,6 +172,32 @@ export default function DashboardScreen() {
 
       setHistory(mappedHistory);
       setStats({ rulesCount, appsCount, todayIntentsCount, avgLatencyMs });
+
+      // Build bridge status rows
+      const bridgeRules = (bridgeRes.data ?? []) as Array<{
+        intent_type: string;
+        dest_pwa_url: string | null;
+        dest_pwa_name: string | null;
+        priority: number;
+      }>;
+
+      const bridgeIntents: Array<{ type: string; label: string; icon: React.ReactNode }> = [
+        { type: 'email',   label: 'Email',   icon: <Mail    size={13} color={COLORS.textSecondary} /> },
+        { type: 'browser', label: 'Web',     icon: <Globe   size={13} color={COLORS.textSecondary} /> },
+        { type: 'geo',     label: 'Maps',    icon: <MapPin  size={13} color={COLORS.textSecondary} /> },
+      ];
+
+      const statusRows: BridgeStatusRow[] = bridgeIntents.map(({ type, label, icon }) => {
+        const rule = bridgeRules.find((r) => r.intent_type === type);
+        return {
+          intentType: type,
+          label,
+          icon,
+          pwaName: rule?.dest_pwa_name ?? null,
+        };
+      });
+
+      setBridgeStatus(statusRows);
       console.log('[Dashboard] fetchData done', { rulesCount, appsCount, todayIntentsCount, avgLatencyMs });
     } catch (err) {
       console.error('[Dashboard] fetchData error', err);
@@ -167,38 +206,16 @@ export default function DashboardScreen() {
     }
   }, [user]);
 
-  const fetchRoleStatuses = useCallback(async () => {
-    if (Platform.OS !== 'android') return;
-    console.log('[Dashboard] fetchRoleStatuses');
-    try {
-      const results = await Promise.all(
-        DASHBOARD_ROLES.map(async (role) => {
-          const status = await checkRole(role);
-          return [role, status] as [string, RoleStatus];
-        })
-      );
-      const map: Record<string, RoleStatus> = {};
-      results.forEach(([role, status]) => {
-        map[role] = status;
-      });
-      setRoleStatuses(map);
-      console.log('[Dashboard] roleStatuses loaded', map);
-    } catch (err) {
-      console.error('[Dashboard] fetchRoleStatuses error', err);
-    }
-  }, []);
-
   useEffect(() => {
     fetchData();
-    fetchRoleStatuses();
-  }, [fetchData, fetchRoleStatuses]);
+  }, [fetchData]);
 
   const onRefresh = useCallback(async () => {
     console.log('[Dashboard] onRefresh');
     setRefreshing(true);
-    await Promise.all([fetchData(), refreshRules(), fetchRoleStatuses()]);
+    await Promise.all([fetchData(), refreshRules()]);
     setRefreshing(false);
-  }, [fetchData, refreshRules, fetchRoleStatuses]);
+  }, [fetchData, refreshRules]);
 
   const activeRules = rules.filter((r) => r.is_enabled).length;
   const topRules = rules.filter((r) => r.is_enabled).slice(0, 3);
@@ -209,145 +226,139 @@ export default function DashboardScreen() {
   const todayIntentsDisplay = String(stats.todayIntentsCount);
   const activeRulesDisplay = String(activeRules);
 
-  const heldCount = DASHBOARD_ROLES.filter((r) => roleStatuses[r]?.isHeld).length;
-  const roleStatusSummary = Platform.OS === 'android'
-    ? `${heldCount}/${DASHBOARD_ROLES.length} held`
-    : null;
-
   return (
     <ErrorBoundary>
-    <ScrollView
-      style={{ flex: 1, backgroundColor: COLORS.background }}
-      contentContainerStyle={{
-        paddingTop: insets.top + 16,
-        paddingHorizontal: 16,
-        paddingBottom: 120,
-      }}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={COLORS.primary}
-        />
-      }
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Header */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 24,
+      <ScrollView
+        style={{ flex: 1, backgroundColor: COLORS.background }}
+        contentContainerStyle={{
+          paddingTop: insets.top + 16,
+          paddingHorizontal: 16,
+          paddingBottom: 120,
         }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.primary}
+          />
+        }
+        showsVerticalScrollIndicator={false}
       >
-        <View>
-          <Text
-            style={{
-              color: COLORS.textSecondary,
-              fontSize: 12,
-              fontFamily: 'SpaceGrotesk_500Medium',
-              letterSpacing: 1.2,
-              textTransform: 'uppercase',
-            }}
-          >
-            Universal Router
-          </Text>
-          <Text
-            style={{
-              color: COLORS.text,
-              fontSize: 28,
-              fontWeight: '700',
-              fontFamily: 'SpaceGrotesk_700Bold',
-              letterSpacing: -0.5,
-              marginTop: 2,
-            }}
-          >
-            Gatsby Router
-          </Text>
-        </View>
-        <AnimatedPressable
-          onPress={() => {
-            console.log('[Dashboard] Test Intent button pressed');
-            router.push('/test-intent');
-          }}
+        {/* Header */}
+        <View
           style={{
-            backgroundColor: COLORS.primary,
-            borderRadius: 10,
-            paddingHorizontal: 14,
-            paddingVertical: 10,
             flexDirection: 'row',
             alignItems: 'center',
-            gap: 6,
+            justifyContent: 'space-between',
+            marginBottom: 24,
           }}
         >
-          <FlaskConical size={16} color="#fff" />
-          <Text
+          <View>
+            <Text
+              style={{
+                color: COLORS.textSecondary,
+                fontSize: 12,
+                fontFamily: 'SpaceGrotesk_500Medium',
+                letterSpacing: 1.2,
+                textTransform: 'uppercase',
+              }}
+            >
+              PWA Bridge
+            </Text>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: 28,
+                fontWeight: '700',
+                fontFamily: 'SpaceGrotesk_700Bold',
+                letterSpacing: -0.5,
+                marginTop: 2,
+              }}
+            >
+              Gatsby Router
+            </Text>
+          </View>
+          <AnimatedPressable
+            onPress={() => {
+              console.log('[Dashboard] Test Intent button pressed');
+              router.push('/test-intent');
+            }}
             style={{
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: '600',
-              fontFamily: 'SpaceGrotesk_600SemiBold',
+              backgroundColor: COLORS.primary,
+              borderRadius: 10,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
-            Test Intent
-          </Text>
-        </AnimatedPressable>
-      </View>
-
-      {/* Stats Grid */}
-      <Text
-        style={{
-          color: COLORS.textSecondary,
-          fontSize: 12,
-          fontFamily: 'SpaceGrotesk_600SemiBold',
-          letterSpacing: 0.8,
-          textTransform: 'uppercase',
-          marginBottom: 12,
-        }}
-      >
-        Overview
-      </Text>
-      {loading ? (
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
-          <SkeletonStatCard />
-          <SkeletonStatCard />
+            <FlaskConical size={16} color="#fff" />
+            <Text
+              style={{
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: '600',
+                fontFamily: 'SpaceGrotesk_600SemiBold',
+              }}
+            >
+              Test Intent
+            </Text>
+          </AnimatedPressable>
         </View>
-      ) : (
-        <>
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-            <StatCard
-              icon={<Activity size={18} color={COLORS.accent} />}
-              value={todayIntentsDisplay}
-              label="Today's Intents"
-              color={COLORS.accent}
-            />
-            <StatCard
-              icon={<Zap size={18} color={COLORS.primary} />}
-              value={activeRulesDisplay}
-              label="Rules Active"
-              color={COLORS.primary}
-            />
-          </View>
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
-            <StatCard
-              icon={<LayoutGrid size={18} color="#BC8CFF" />}
-              value={appsCountDisplay}
-              label="Apps Registered"
-              color="#BC8CFF"
-            />
-            <StatCard
-              icon={<Clock size={18} color={COLORS.warning} />}
-              value={avgLatencyDisplay}
-              label="Avg Latency"
-              color={COLORS.warning}
-            />
-          </View>
-        </>
-      )}
 
-      {/* Default App Status Card — Android only */}
-      {Platform.OS === 'android' && (
+        {/* Stats Grid */}
+        <Text
+          style={{
+            color: COLORS.textSecondary,
+            fontSize: 12,
+            fontFamily: 'SpaceGrotesk_600SemiBold',
+            letterSpacing: 0.8,
+            textTransform: 'uppercase',
+            marginBottom: 12,
+          }}
+        >
+          Overview
+        </Text>
+        {loading ? (
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
+            <SkeletonStatCard />
+            <SkeletonStatCard />
+          </View>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+              <StatCard
+                icon={<Activity size={18} color={COLORS.accent} />}
+                value={todayIntentsDisplay}
+                label="Today's Intents"
+                color={COLORS.accent}
+              />
+              <StatCard
+                icon={<Zap size={18} color={COLORS.primary} />}
+                value={activeRulesDisplay}
+                label="Rules Active"
+                color={COLORS.primary}
+              />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
+              <StatCard
+                icon={<LayoutGrid size={18} color="#BC8CFF" />}
+                value={appsCountDisplay}
+                label="PWAs Registered"
+                color="#BC8CFF"
+              />
+              <StatCard
+                icon={<Clock size={18} color={COLORS.warning} />}
+                value={avgLatencyDisplay}
+                label="Avg Latency"
+                color={COLORS.warning}
+              />
+            </View>
+          </>
+        )}
+
+        {/* Bridge Status Card */}
         <>
           <Text
             style={{
@@ -359,12 +370,12 @@ export default function DashboardScreen() {
               marginBottom: 12,
             }}
           >
-            Default App Status
+            Bridge Status
           </Text>
           <AnimatedPressable
             onPress={() => {
-              console.log('[Dashboard] Default App Status card pressed, navigating to settings');
-              router.push('/(tabs)/(settings)');
+              console.log('[Dashboard] Bridge Status card pressed, navigating to destinations');
+              router.push('/(tabs)/(apps)');
             }}
             style={{
               backgroundColor: COLORS.surface,
@@ -384,7 +395,7 @@ export default function DashboardScreen() {
               }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Smartphone size={16} color={COLORS.primary} />
+                <Wifi size={16} color={COLORS.primary} />
                 <Text
                   style={{
                     color: COLORS.text,
@@ -392,33 +403,20 @@ export default function DashboardScreen() {
                     fontFamily: 'SpaceGrotesk_600SemiBold',
                   }}
                 >
-                  Role Status
+                  Bridge Status
                 </Text>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {roleStatusSummary !== null && (
-                  <Text
-                    style={{
-                      color: COLORS.textSecondary,
-                      fontSize: 12,
-                      fontFamily: 'SpaceGrotesk_400Regular',
-                    }}
-                  >
-                    {roleStatusSummary}
-                  </Text>
-                )}
-                <ChevronRight size={14} color={COLORS.textTertiary} />
-              </View>
+              <ChevronRight size={14} color={COLORS.textTertiary} />
             </View>
-            <View style={{ gap: 8 }}>
-              {DASHBOARD_ROLES.map((role) => {
-                const status = roleStatuses[role];
-                const isHeld = status?.isHeld ?? false;
-                const label = ANDROID_ROLE_LABELS[role] ?? role;
-                const dotColor = isHeld ? COLORS.accent : COLORS.danger;
+            <View style={{ gap: 10 }}>
+              {bridgeStatus.map((row) => {
+                const isConfigured = row.pwaName !== null;
+                const dotColor = isConfigured ? COLORS.accent : COLORS.textTertiary;
+                const valueText = isConfigured ? row.pwaName : 'Not configured';
+                const valueColor = isConfigured ? COLORS.text : COLORS.textTertiary;
                 return (
                   <View
-                    key={role}
+                    key={row.intentType}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -433,24 +431,27 @@ export default function DashboardScreen() {
                         backgroundColor: dotColor,
                       }}
                     />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                      {row.icon}
+                      <Text
+                        style={{
+                          color: COLORS.text,
+                          fontSize: 13,
+                          fontFamily: 'SpaceGrotesk_400Regular',
+                        }}
+                      >
+                        {row.label}
+                      </Text>
+                    </View>
                     <Text
                       style={{
-                        flex: 1,
-                        color: COLORS.text,
-                        fontSize: 13,
-                        fontFamily: 'SpaceGrotesk_400Regular',
-                      }}
-                    >
-                      {label}
-                    </Text>
-                    <Text
-                      style={{
-                        color: isHeld ? COLORS.accent : COLORS.textTertiary,
+                        color: valueColor,
                         fontSize: 12,
                         fontFamily: 'SpaceGrotesk_400Regular',
                       }}
+                      numberOfLines={1}
                     >
-                      {isHeld ? 'Held' : 'Not set'}
+                      {valueText}
                     </Text>
                   </View>
                 );
@@ -458,131 +459,130 @@ export default function DashboardScreen() {
             </View>
           </AnimatedPressable>
         </>
-      )}
 
-      {/* Recent Intents */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-        }}
-      >
-        <Text
+        {/* Recent Intents */}
+        <View
           style={{
-            color: COLORS.textSecondary,
-            fontSize: 12,
-            fontFamily: 'SpaceGrotesk_600SemiBold',
-            letterSpacing: 0.8,
-            textTransform: 'uppercase',
-          }}
-        >
-          Recent Intents
-        </Text>
-        <AnimatedPressable
-          onPress={() => {
-            console.log('[Dashboard] View all history pressed');
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 12,
           }}
         >
           <Text
             style={{
-              color: COLORS.primary,
+              color: COLORS.textSecondary,
               fontSize: 12,
-              fontFamily: 'SpaceGrotesk_500Medium',
+              fontFamily: 'SpaceGrotesk_600SemiBold',
+              letterSpacing: 0.8,
+              textTransform: 'uppercase',
             }}
           >
-            View all
+            Recent Intents
           </Text>
-        </AnimatedPressable>
-      </View>
-
-      {loading ? (
-        <>
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
-        </>
-      ) : history.length === 0 ? (
-        <EmptyState
-          icon={<History size={32} color={COLORS.primary} />}
-          title="No intents yet"
-          subtitle="Simulate an intent to see routing history here"
-          ctaLabel="Simulate intent"
-          onCta={() => {
-            console.log('[Dashboard] EmptyState CTA pressed');
-            router.push('/test-intent');
-          }}
-        />
-      ) : (
-        history.map((item, index) => (
-          <AnimatedListItem key={item.id} index={index}>
-            <IntentHistoryCard
-              item={item}
-              onPress={() => {
-                console.log('[Dashboard] history item pressed:', item.id);
-                router.push(`/intent/${item.id}`);
-              }}
-            />
-          </AnimatedListItem>
-        ))
-      )}
-
-      {/* Quick Rules */}
-      {topRules.length > 0 && (
-        <>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginTop: 24,
-              marginBottom: 12,
+          <AnimatedPressable
+            onPress={() => {
+              console.log('[Dashboard] View all history pressed');
             }}
           >
             <Text
               style={{
-                color: COLORS.textSecondary,
+                color: COLORS.primary,
                 fontSize: 12,
-                fontFamily: 'SpaceGrotesk_600SemiBold',
-                letterSpacing: 0.8,
-                textTransform: 'uppercase',
+                fontFamily: 'SpaceGrotesk_500Medium',
               }}
             >
-              Active Rules
+              View all
             </Text>
-            <AnimatedPressable
-              onPress={() => {
-                console.log('[Dashboard] View all rules pressed');
-                router.push('/(tabs)/(rules)');
+          </AnimatedPressable>
+        </View>
+
+        {loading ? (
+          <>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </>
+        ) : history.length === 0 ? (
+          <EmptyState
+            icon={<History size={32} color={COLORS.primary} />}
+            title="No intents yet"
+            subtitle="Simulate an intent to see routing history here"
+            ctaLabel="Simulate intent"
+            onCta={() => {
+              console.log('[Dashboard] EmptyState CTA pressed');
+              router.push('/test-intent');
+            }}
+          />
+        ) : (
+          history.map((item, index) => (
+            <AnimatedListItem key={item.id} index={index}>
+              <IntentHistoryCard
+                item={item}
+                onPress={() => {
+                  console.log('[Dashboard] history item pressed:', item.id);
+                  router.push(`/intent/${item.id}`);
+                }}
+              />
+            </AnimatedListItem>
+          ))
+        )}
+
+        {/* Quick Rules */}
+        {topRules.length > 0 && (
+          <>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 24,
+                marginBottom: 12,
               }}
             >
               <Text
                 style={{
-                  color: COLORS.primary,
+                  color: COLORS.textSecondary,
                   fontSize: 12,
-                  fontFamily: 'SpaceGrotesk_500Medium',
+                  fontFamily: 'SpaceGrotesk_600SemiBold',
+                  letterSpacing: 0.8,
+                  textTransform: 'uppercase',
                 }}
               >
-                View all
+                Active Rules
               </Text>
-            </AnimatedPressable>
-          </View>
-          {topRules.map((rule, index) => (
-            <AnimatedListItem key={rule.id} index={index}>
-              <RuleCard
-                rule={rule}
+              <AnimatedPressable
                 onPress={() => {
-                  console.log('[Dashboard] quick rule pressed:', rule.id);
-                  router.push(`/rule/${rule.id}`);
+                  console.log('[Dashboard] View all rules pressed');
+                  router.push('/(tabs)/(rules)');
                 }}
-                onToggle={() => {}}
-              />
-            </AnimatedListItem>
-          ))}
-        </>
-      )}
-    </ScrollView>
+              >
+                <Text
+                  style={{
+                    color: COLORS.primary,
+                    fontSize: 12,
+                    fontFamily: 'SpaceGrotesk_500Medium',
+                  }}
+                >
+                  View all
+                </Text>
+              </AnimatedPressable>
+            </View>
+            {topRules.map((rule, index) => (
+              <AnimatedListItem key={rule.id} index={index}>
+                <RuleCard
+                  rule={rule}
+                  onPress={() => {
+                    console.log('[Dashboard] quick rule pressed:', rule.id);
+                    router.push(`/rule/${rule.id}`);
+                  }}
+                  onToggle={() => {}}
+                />
+              </AnimatedListItem>
+            ))}
+          </>
+        )}
+      </ScrollView>
     </ErrorBoundary>
   );
 }

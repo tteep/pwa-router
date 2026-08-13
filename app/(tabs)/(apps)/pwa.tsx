@@ -885,7 +885,7 @@ export default function PwaScreen() {
                 lineHeight: 17,
               }}
             >
-              Register PWAs as routing targets alongside native apps
+              Register Gatsby PWAs as routing destinations for Android intents
             </Text>
           </View>
 
