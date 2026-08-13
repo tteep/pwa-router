@@ -35,39 +35,64 @@
           "action": "VIEW",
           "autoVerify": false,
           "data": [
-            { "scheme": "https" },
-            { "scheme": "http" }
+            {
+              "scheme": "https"
+            },
+            {
+              "scheme": "http"
+            }
           ],
-          "category": ["DEFAULT", "BROWSABLE"]
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ]
         },
         {
           "action": "SENDTO",
           "data": [
-            { "scheme": "mailto" }
+            {
+              "scheme": "mailto"
+            }
           ],
-          "category": ["DEFAULT"]
+          "category": [
+            "DEFAULT"
+          ]
         },
         {
           "action": "DIAL",
           "data": [
-            { "scheme": "tel" }
+            {
+              "scheme": "tel"
+            }
           ],
-          "category": ["DEFAULT"]
+          "category": [
+            "DEFAULT"
+          ]
         },
         {
           "action": "VIEW",
           "data": [
-            { "scheme": "geo" }
+            {
+              "scheme": "geo"
+            }
           ],
-          "category": ["DEFAULT"]
+          "category": [
+            "DEFAULT"
+          ]
         },
         {
           "action": "SEND",
           "data": [
-            { "mimeType": "text/plain" },
-            { "mimeType": "image/*" }
+            {
+              "mimeType": "text/plain"
+            },
+            {
+              "mimeType": "image/*"
+            }
           ],
-          "category": ["DEFAULT"]
+          "category": [
+            "DEFAULT"
+          ]
         }
       ]
     },
