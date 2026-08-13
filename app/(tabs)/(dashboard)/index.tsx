@@ -391,7 +391,7 @@ export default function DashboardScreen() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                marginBottom: 14,
+                marginBottom: 6,
               }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -408,6 +408,16 @@ export default function DashboardScreen() {
               </View>
               <ChevronRight size={14} color={COLORS.textTertiary} />
             </View>
+            <Text
+              style={{
+                color: COLORS.textTertiary,
+                fontSize: 11,
+                fontFamily: 'SpaceGrotesk_400Regular',
+                marginBottom: 14,
+              }}
+            >
+              Protocol: gatsbyrouter://native
+            </Text>
             <View style={{ gap: 10 }}>
               {bridgeStatus.map((row) => {
                 const isConfigured = row.pwaName !== null;

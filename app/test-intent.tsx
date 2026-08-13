@@ -160,7 +160,7 @@ export default function TestIntentScreen() {
     setMatchedRule(rule);
 
     // Step 2: execute intent (open URL)
-    const result = await executeIntent(selectedType, rawData, rule, pwaApps);
+    const result = await executeIntent(selectedType, rawData, rule, pwaApps, user?.id ?? null);
     console.log('[TestIntent] executeIntent result:', result);
     setExecResult(result);
 

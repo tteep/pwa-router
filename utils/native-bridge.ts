@@ -1,32 +1,23 @@
-/**
- * Gatsby Router Native Bridge
- *
- * Allows trusted Gatsby PWA origins to request native Android capabilities
- * via postMessage over a WebView. Only origins in the TRUSTED_ORIGINS allowlist
- * are permitted to invoke native capabilities.
- *
- * Architecture:
- *   PWA (WebView) → postMessage({ id, capability, params })
- *       → NativeBridge validates origin
- *       → executes capability
- *       → postMessage back { id, result, error }
- */
+import { Linking, Share } from 'react-native';
+import { supabase } from '@/utils/supabase';
 
-export type BridgeCapability =
-  | 'camera'
-  | 'pickFile'
-  | 'saveFile'
-  | 'share'
-  | 'getLocation'
-  | 'getContact'
-  | 'openPhone'
-  | 'openMaps';
+// ─── Capability tiers ─────────────────────────────────────────────────────────
 
-export interface BridgeRequest {
-  id: string;           // UUID, used to correlate response
+export const TIER1_CAPABILITIES = ['share', 'phone', 'maps'] as const;
+export const TIER2_CAPABILITIES = ['camera', 'pickFile', 'saveFile', 'location', 'contact'] as const;
+
+export type Tier1Capability = typeof TIER1_CAPABILITIES[number];
+export type Tier2Capability = typeof TIER2_CAPABILITIES[number];
+export type BridgeCapability = Tier1Capability | Tier2Capability;
+
+// ─── Request / Response types ─────────────────────────────────────────────────
+
+export interface NativeRequest {
+  id: string;
   capability: BridgeCapability;
-  params: Record<string, unknown>;
-  origin: string;       // PWA origin, validated against allowlist
+  ts: number;           // unix ms timestamp from PWA
+  callback: string;     // HTTPS URL to deliver result to
+  params: Record<string, string>;
 }
 
 export interface BridgeResponse {
@@ -34,10 +25,24 @@ export interface BridgeResponse {
   success: boolean;
   result?: Record<string, unknown>;
   error?: string;
+  errorCode?: string;
 }
 
-// Trusted PWA origins allowlist — loaded from pwa_apps.url origins
-// Only these origins may invoke native capabilities
+// ─── Error codes ──────────────────────────────────────────────────────────────
+
+export const BridgeErrorCode = {
+  UNSUPPORTED_CAPABILITY: 'UNSUPPORTED_CAPABILITY',
+  INVALID_REQUEST:        'INVALID_REQUEST',
+  EXPIRED_REQUEST:        'EXPIRED_REQUEST',
+  INVALID_CALLBACK:       'INVALID_CALLBACK',
+  MISSING_PARAMETER:      'MISSING_PARAMETER',
+  CAPABILITY_UNAVAILABLE: 'CAPABILITY_UNAVAILABLE',
+  USER_CANCELLED:         'USER_CANCELLED',
+  UNTRUSTED_CALLBACK:     'UNTRUSTED_CALLBACK',
+} as const;
+
+// ─── Origin helpers ───────────────────────────────────────────────────────────
+
 export function extractOrigin(url: string): string {
   try {
     const u = new URL(url);
@@ -48,146 +53,213 @@ export function extractOrigin(url: string): string {
 }
 
 export function isTrustedOrigin(origin: string, trustedOrigins: string[]): boolean {
-  return trustedOrigins.some((trusted) => trusted === origin);
+  return trustedOrigins.some((t) => t === origin);
 }
 
-/**
- * Builds the JS snippet to inject into a WebView that exposes GatsbyNative API.
- * The PWA calls these methods; the WebView fires onMessage back to the native layer.
- */
-export function buildBridgeInjection(): string {
-  return `
-(function() {
-  if (window.GatsbyNative) return;
+// ─── Parse incoming gatsbyrouter://native/<cap>?... URL ───────────────────────
 
-  const pending = {};
-
-  window.GatsbyNative = {
-    _call: function(capability, params) {
-      return new Promise(function(resolve, reject) {
-        const id = Math.random().toString(36).slice(2);
-        pending[id] = { resolve, reject };
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          id,
-          capability,
-          params: params || {},
-          origin: window.location.origin,
-        }));
-        setTimeout(function() {
-          if (pending[id]) {
-            delete pending[id];
-            reject(new Error('Bridge timeout'));
-          }
-        }, 30000);
-      });
-    },
-    _resolve: function(id, result) {
-      if (pending[id]) {
-        pending[id].resolve(result);
-        delete pending[id];
-      }
-    },
-    _reject: function(id, error) {
-      if (pending[id]) {
-        pending[id].reject(new Error(error));
-        delete pending[id];
-      }
-    },
-    openCamera:  function(p) { return this._call('camera', p); },
-    pickFile:    function(p) { return this._call('pickFile', p); },
-    saveFile:    function(p) { return this._call('saveFile', p); },
-    share:       function(p) { return this._call('share', p); },
-    getLocation: function(p) { return this._call('getLocation', p); },
-    getContact:  function(p) { return this._call('getContact', p); },
-    openPhone:   function(p) { return this._call('openPhone', p); },
-    openMaps:    function(p) { return this._call('openMaps', p); },
-  };
-
-  // Listen for responses from native layer
-  document.addEventListener('message', function(e) {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.success) {
-        window.GatsbyNative._resolve(msg.id, msg.result);
-      } else {
-        window.GatsbyNative._reject(msg.id, msg.error || 'Unknown error');
-      }
-    } catch {}
-  });
-})();
-  `.trim();
-}
-
-/**
- * Handles an incoming bridge message from a WebView.
- * Returns a BridgeResponse to send back.
- *
- * Phase 1: validates origin and returns structured response.
- * Phase 2+: will dispatch to actual native capability handlers.
- */
-export async function handleBridgeMessage(
-  raw: string,
-  trustedOrigins: string[]
-): Promise<BridgeResponse> {
-  let req: BridgeRequest;
+export function parseNativeRequest(url: string): NativeRequest | null {
   try {
-    req = JSON.parse(raw) as BridgeRequest;
+    // url looks like: gatsbyrouter://native/share?id=...&ts=...&callback=...&text=...
+    const u = new URL(url);
+    if (u.protocol !== 'gatsbyrouter:') return null;
+    if (u.hostname !== 'native') return null;
+
+    const capability = u.pathname.replace(/^\//, '') as BridgeCapability;
+    const id = u.searchParams.get('id') ?? '';
+    const tsStr = u.searchParams.get('ts') ?? '';
+    const callback = u.searchParams.get('callback') ?? '';
+
+    if (!id || !tsStr || !callback || !capability) return null;
+
+    const ts = parseInt(tsStr, 10);
+    if (isNaN(ts)) return null;
+
+    // Collect remaining params (everything except id, ts, callback)
+    const params: Record<string, string> = {};
+    u.searchParams.forEach((value, key) => {
+      if (key !== 'id' && key !== 'ts' && key !== 'callback') {
+        params[key] = value;
+      }
+    });
+
+    return { id, capability, ts, callback, params };
   } catch {
-    return { id: '', success: false, error: 'Invalid message format' };
+    return null;
+  }
+}
+
+// ─── Validate a parsed request ────────────────────────────────────────────────
+
+export interface ValidationResult {
+  valid: boolean;
+  errorCode?: string;
+  error?: string;
+}
+
+export function validateNativeRequest(req: NativeRequest): ValidationResult {
+  // 1. Expiry check — reject requests older than 60 seconds
+  const ageMs = Date.now() - req.ts;
+  if (ageMs > 60_000 || ageMs < -5_000) {
+    return { valid: false, errorCode: BridgeErrorCode.EXPIRED_REQUEST, error: 'Request expired' };
   }
 
-  console.log('[NativeBridge] incoming request:', req.capability, 'from', req.origin);
-
-  if (!isTrustedOrigin(req.origin, trustedOrigins)) {
-    console.warn('[NativeBridge] BLOCKED untrusted origin:', req.origin);
-    return { id: req.id, success: false, error: `Origin not trusted: ${req.origin}` };
+  // 2. Callback URL must be valid and HTTPS (or localhost for dev)
+  let callbackUrl: URL;
+  try {
+    callbackUrl = new URL(req.callback);
+  } catch {
+    return { valid: false, errorCode: BridgeErrorCode.INVALID_CALLBACK, error: 'Invalid callback URL' };
+  }
+  const isLocalhost = callbackUrl.hostname === 'localhost' || callbackUrl.hostname === '127.0.0.1';
+  if (callbackUrl.protocol !== 'https:' && !isLocalhost) {
+    return { valid: false, errorCode: BridgeErrorCode.INVALID_CALLBACK, error: 'Callback must use HTTPS' };
   }
 
-  // Phase 1: capability stubs — return structured "not yet implemented" responses
-  // that the PWA can handle gracefully. Phase 2+ will implement each capability.
-  switch (req.capability) {
+  // 3. Capability must be known
+  const allCaps: string[] = [...TIER1_CAPABILITIES, ...TIER2_CAPABILITIES];
+  if (!allCaps.includes(req.capability)) {
+    return { valid: false, errorCode: BridgeErrorCode.UNSUPPORTED_CAPABILITY, error: `Unknown capability: ${req.capability}` };
+  }
+
+  return { valid: true };
+}
+
+// ─── Build callback URL safely (never string-concatenate) ─────────────────────
+
+export function buildCallbackUrl(callbackBase: string, response: BridgeResponse): string {
+  try {
+    const u = new URL(callbackBase);
+    u.searchParams.set('id', response.id);
+    u.searchParams.set('success', String(response.success));
+    if (response.result !== undefined) {
+      u.searchParams.set('result', JSON.stringify(response.result));
+    }
+    if (response.error !== undefined) {
+      u.searchParams.set('error', response.error);
+    }
+    if (response.errorCode !== undefined) {
+      u.searchParams.set('errorCode', response.errorCode);
+    }
+    return u.toString();
+  } catch {
+    return callbackBase;
+  }
+}
+
+// ─── Execute a validated Tier 1 capability ────────────────────────────────────
+
+export async function executeNativeCapability(
+  req: NativeRequest
+): Promise<BridgeResponse> {
+  const { id, capability, params } = req;
+
+  console.log('[NativeBridge] executeNativeCapability', { id, capability, params });
+
+  // Tier 2 — not yet implemented, return structured error
+  if ((TIER2_CAPABILITIES as readonly string[]).includes(capability)) {
+    console.log('[NativeBridge] tier2 capability not yet available:', capability);
+    return {
+      id,
+      success: false,
+      errorCode: BridgeErrorCode.CAPABILITY_UNAVAILABLE,
+      error: `Capability '${capability}' requires explicit user authorization (Phase 2)`,
+    };
+  }
+
+  switch (capability as Tier1Capability) {
     case 'share': {
-      // Share is safe to implement now via Linking
-      const { Linking } = await import('react-native');
-      const text = String(req.params.text ?? '');
-      const url = String(req.params.url ?? '');
+      const text = params.text ?? '';
+      const url  = params.url  ?? '';
+      const title = params.title ?? '';
+      console.log('[NativeBridge] share capability invoked', { text: !!text, url: !!url });
       try {
-        // Use expo-sharing if available, fallback to Linking
-        const ExpoSharing = await import('expo-sharing');
-        const available = await ExpoSharing.isAvailableAsync();
-        if (available && url) {
-          await ExpoSharing.shareAsync(url);
-          return { id: req.id, success: true, result: { shared: true } };
+        await Share.share({ message: text || url, url: url || undefined, title: title || undefined });
+        console.log('[NativeBridge] share completed successfully');
+        return { id, success: true, result: { shared: true } };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('cancel') || msg.includes('Cancel')) {
+          console.log('[NativeBridge] share cancelled by user');
+          return { id, success: false, errorCode: BridgeErrorCode.USER_CANCELLED, error: 'User cancelled share' };
         }
-      } catch {}
-      // Fallback: open URL
-      if (url) await Linking.openURL(url);
-      return { id: req.id, success: true, result: { shared: true, text, url } };
+        console.warn('[NativeBridge] share error:', msg);
+        return { id, success: false, errorCode: BridgeErrorCode.CAPABILITY_UNAVAILABLE, error: msg };
+      }
     }
-    case 'openPhone': {
-      const { Linking } = await import('react-native');
-      const tel = String(req.params.number ?? '');
-      if (tel) await Linking.openURL(`tel:${tel}`);
-      return { id: req.id, success: true, result: { opened: true } };
+
+    case 'phone': {
+      const number = params.number ?? params.tel ?? '';
+      if (!number) {
+        console.warn('[NativeBridge] phone capability missing number param');
+        return { id, success: false, errorCode: BridgeErrorCode.MISSING_PARAMETER, error: 'Missing parameter: number' };
+      }
+      // Only open the dialer — never auto-dial
+      const dialUrl = `tel:${number}`;
+      console.log('[NativeBridge] phone capability opening dialer');
+      try {
+        const canOpen = await Linking.canOpenURL(dialUrl);
+        if (!canOpen) {
+          console.warn('[NativeBridge] dialer not available');
+          return { id, success: false, errorCode: BridgeErrorCode.CAPABILITY_UNAVAILABLE, error: 'Dialer not available' };
+        }
+        await Linking.openURL(dialUrl);
+        console.log('[NativeBridge] dialer opened successfully');
+        return { id, success: true, result: { opened: true, number } };
+      } catch (err: unknown) {
+        console.warn('[NativeBridge] phone error:', err);
+        return { id, success: false, errorCode: BridgeErrorCode.CAPABILITY_UNAVAILABLE, error: String(err) };
+      }
     }
-    case 'openMaps': {
-      const { Linking } = await import('react-native');
-      const q = String(req.params.query ?? req.params.address ?? '');
-      if (q) await Linking.openURL(`geo:0,0?q=${encodeURIComponent(q)}`);
-      return { id: req.id, success: true, result: { opened: true } };
+
+    case 'maps': {
+      const query   = params.query   ?? params.address ?? '';
+      const lat     = params.lat     ?? '';
+      const lng     = params.lng     ?? '';
+      let mapsUrl: string;
+      if (lat && lng) {
+        mapsUrl = `geo:${lat},${lng}${query ? `?q=${encodeURIComponent(query)}` : ''}`;
+      } else if (query) {
+        mapsUrl = `geo:0,0?q=${encodeURIComponent(query)}`;
+      } else {
+        console.warn('[NativeBridge] maps capability missing location params');
+        return { id, success: false, errorCode: BridgeErrorCode.MISSING_PARAMETER, error: 'Missing parameter: query, address, or lat+lng' };
+      }
+      console.log('[NativeBridge] maps capability opening:', mapsUrl);
+      try {
+        await Linking.openURL(mapsUrl);
+        console.log('[NativeBridge] maps opened successfully');
+        return { id, success: true, result: { opened: true } };
+      } catch (err: unknown) {
+        console.warn('[NativeBridge] maps error:', err);
+        return { id, success: false, errorCode: BridgeErrorCode.CAPABILITY_UNAVAILABLE, error: String(err) };
+      }
     }
-    case 'camera':
-    case 'pickFile':
-    case 'saveFile':
-    case 'getLocation':
-    case 'getContact':
-      // Phase 2+ capabilities — return structured stub
-      return {
-        id: req.id,
-        success: false,
-        error: `Capability '${req.capability}' requires Phase 2 implementation`,
-      };
+
     default:
-      return { id: req.id, success: false, error: `Unknown capability: ${(req as BridgeRequest).capability}` };
+      console.warn('[NativeBridge] unsupported capability:', capability);
+      return { id, success: false, errorCode: BridgeErrorCode.UNSUPPORTED_CAPABILITY, error: `Unsupported capability: ${capability}` };
+  }
+}
+
+// ─── Load trusted origins from pwa_apps table ─────────────────────────────────
+
+export async function loadTrustedOrigins(userId: string): Promise<string[]> {
+  console.log('[NativeBridge] loadTrustedOrigins for user:', userId);
+  try {
+    const { data, error } = await supabase
+      .from('pwa_apps')
+      .select('url')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+    if (error || !data) {
+      console.warn('[NativeBridge] loadTrustedOrigins error:', error?.message);
+      return [];
+    }
+    const origins = data.map((row: { url: string }) => extractOrigin(row.url)).filter(Boolean);
+    console.log('[NativeBridge] trusted origins loaded:', origins.length);
+    return origins;
+  } catch {
+    return [];
   }
 }

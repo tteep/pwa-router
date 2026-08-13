@@ -27,8 +27,7 @@
       "package": "com.gatsbyrouter.app",
       "permissions": [
         "USE_BIOMETRIC",
-        "USE_FINGERPRINT",
-        "android.permission.QUERY_ALL_PACKAGES"
+        "USE_FINGERPRINT"
       ],
       "intentFilters": [
         {

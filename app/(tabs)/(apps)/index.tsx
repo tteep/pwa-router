@@ -67,12 +67,19 @@ const DESTINATION_INTENT_TYPES: Array<{ type: string; label: string; icon: React
   { type: 'text',    label: 'Share',   icon: <Share2 size={16} color={COLORS.primary} /> },
 ];
 
-const NATIVE_CAPABILITIES = [
-  { label: 'Camera',   icon: <Camera    size={15} color={COLORS.textSecondary} /> },
-  { label: 'Files',    icon: <FolderOpen size={15} color={COLORS.textSecondary} /> },
-  { label: 'Share',    icon: <Share2    size={15} color={COLORS.textSecondary} /> },
-  { label: 'Contacts', icon: <User      size={15} color={COLORS.textSecondary} /> },
-  { label: 'Location', icon: <MapPin    size={15} color={COLORS.textSecondary} /> },
+const NATIVE_CAPABILITIES: Array<{
+  label: string;
+  capability: string;
+  icon: React.ReactNode;
+  phase: 1 | 2;
+}> = [
+  { label: 'Share',    capability: 'share',    icon: <Share2     size={15} color={COLORS.textSecondary} />, phase: 1 },
+  { label: 'Phone',    capability: 'phone',    icon: <Phone      size={15} color={COLORS.textSecondary} />, phase: 1 },
+  { label: 'Maps',     capability: 'maps',     icon: <Map        size={15} color={COLORS.textSecondary} />, phase: 1 },
+  { label: 'Camera',   capability: 'camera',   icon: <Camera     size={15} color={COLORS.textSecondary} />, phase: 2 },
+  { label: 'Files',    capability: 'pickFile', icon: <FolderOpen size={15} color={COLORS.textSecondary} />, phase: 2 },
+  { label: 'Location', capability: 'location', icon: <MapPin     size={15} color={COLORS.textSecondary} />, phase: 2 },
+  { label: 'Contacts', capability: 'contact',  icon: <User       size={15} color={COLORS.textSecondary} />, phase: 2 },
 ];
 
 // ─── Animated list item ───────────────────────────────────────────────────────
@@ -618,9 +625,14 @@ export default function DestinationsScreen() {
             >
               {NATIVE_CAPABILITIES.map((cap, idx) => {
                 const isLast = idx === NATIVE_CAPABILITIES.length - 1;
+                const protocolUrl = `gatsbyrouter://native/${cap.capability}`;
+                const isPhase1 = cap.phase === 1;
+                const badgeBackground = isPhase1 ? `${COLORS.accent}18` : COLORS.surfaceSecondary;
+                const badgeColor = isPhase1 ? COLORS.accent : COLORS.textTertiary;
+                const badgeLabel = isPhase1 ? 'PHASE 1' : 'PHASE 2';
                 return (
                   <View
-                    key={cap.label}
+                    key={cap.capability}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -645,41 +657,43 @@ export default function DestinationsScreen() {
                     >
                       {cap.icon}
                     </View>
-                    <Text
-                      style={{
-                        flex: 1,
-                        color: COLORS.text,
-                        fontSize: 14,
-                        fontFamily: 'SpaceGrotesk_500Medium',
-                      }}
-                    >
-                      {cap.label}
-                    </Text>
-                    <Text
-                      style={{
-                        color: COLORS.textTertiary,
-                        fontSize: 11,
-                        fontFamily: 'SpaceGrotesk_400Regular',
-                      }}
-                    >
-                      Via bridge
-                    </Text>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text
+                        style={{
+                          color: COLORS.text,
+                          fontSize: 14,
+                          fontFamily: 'SpaceGrotesk_500Medium',
+                        }}
+                      >
+                        {cap.label}
+                      </Text>
+                      <Text
+                        style={{
+                          color: COLORS.textTertiary,
+                          fontSize: 10,
+                          fontFamily: 'SpaceGrotesk_400Regular',
+                        }}
+                        numberOfLines={1}
+                      >
+                        {protocolUrl}
+                      </Text>
+                    </View>
                     <View
                       style={{
                         paddingHorizontal: 7,
                         paddingVertical: 3,
                         borderRadius: 5,
-                        backgroundColor: `${COLORS.accent}15`,
+                        backgroundColor: badgeBackground,
                       }}
                     >
                       <Text
                         style={{
-                          color: COLORS.accent,
+                          color: badgeColor,
                           fontSize: 10,
                           fontFamily: 'SpaceGrotesk_600SemiBold',
                         }}
                       >
-                        AVAILABLE
+                        {badgeLabel}
                       </Text>
                     </View>
                   </View>

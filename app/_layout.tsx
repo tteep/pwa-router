@@ -28,14 +28,28 @@ import { COLORS } from '@/constants/AppColors';
 import { supabase } from '@/utils/supabase';
 import { executeIntent } from '@/utils/device-apps';
 import { PwaApp } from '@/utils/routing-engine';
+import {
+  parseNativeRequest,
+  validateNativeRequest,
+  executeNativeCapability,
+  buildCallbackUrl,
+  loadTrustedOrigins,
+  extractOrigin,
+  isTrustedOrigin,
+} from '@/utils/native-bridge';
 
 SplashScreen.preventAutoHideAsync();
 
 function parseIncomingUrl(url: string): { intentType: string; rawData: Record<string, unknown> } | null {
   if (!url) return null;
   try {
-    // Strip the app's own deep-link scheme (gatsbyrouter://) — those are internal navigation
-    if (url.startsWith('gatsbyrouter://')) return null;
+    // Handle gatsbyrouter:// — only native bridge requests are processed; all others are internal navigation
+    if (url.startsWith('gatsbyrouter://')) {
+      if (url.startsWith('gatsbyrouter://native/')) {
+        return { intentType: 'native_bridge', rawData: { url } };
+      }
+      return null;
+    }
 
     if (url.startsWith('mailto:')) {
       const withoutScheme = url.replace('mailto:', '');
@@ -78,6 +92,65 @@ function parseIncomingUrl(url: string): { intentType: string; rawData: Record<st
   }
 }
 
+async function handleNativeRequest(url: string, userId: string | null): Promise<void> {
+  console.log('[IntentHandler] handleNativeRequest', { url, userId: userId ?? 'guest' });
+
+  // 1. Parse
+  const req = parseNativeRequest(url);
+  if (!req) {
+    console.warn('[IntentHandler] malformed native bridge URL, ignoring:', url);
+    return;
+  }
+
+  // 2. Validate
+  const validation = validateNativeRequest(req);
+  if (!validation.valid) {
+    console.warn('[IntentHandler] invalid native request', { errorCode: validation.errorCode, error: validation.error });
+    // Attempt to deliver error to callback if it looks like a valid HTTPS URL
+    try {
+      const cbTest = new URL(req.callback);
+      const isLocalhost = cbTest.hostname === 'localhost' || cbTest.hostname === '127.0.0.1';
+      if (cbTest.protocol === 'https:' || isLocalhost) {
+        const cbUrl = buildCallbackUrl(req.callback, {
+          id: req.id,
+          success: false,
+          errorCode: validation.errorCode,
+          error: validation.error,
+        });
+        console.log('[IntentHandler] opening error callback:', cbUrl);
+        await Linking.openURL(cbUrl);
+      }
+    } catch {
+      // Callback URL is invalid — silently drop
+    }
+    return;
+  }
+
+  // 3. Load trusted origins
+  const trustedOrigins = userId ? await loadTrustedOrigins(userId) : [];
+  const callbackOrigin = extractOrigin(req.callback);
+
+  // 4. Trust check — silently drop if not trusted (do not disclose details to untrusted callers)
+  if (!isTrustedOrigin(callbackOrigin, trustedOrigins)) {
+    console.warn('[IntentHandler] untrusted callback origin, dropping request silently:', callbackOrigin);
+    return;
+  }
+
+  // 5. Execute capability
+  console.log('[IntentHandler] executing native capability:', req.capability);
+  const response = await executeNativeCapability(req);
+  console.log('[IntentHandler] native capability result', { id: response.id, success: response.success });
+
+  // 6. Deliver result via callback URL
+  const cbUrl = buildCallbackUrl(req.callback, response);
+  console.log('[IntentHandler] opening result callback:', cbUrl);
+  try {
+    await Linking.openURL(cbUrl);
+  } catch (err) {
+    console.warn('[IntentHandler] failed to open callback URL:', err);
+  }
+}
+
 function IntentHandler() {
   const routing = useRouting();
   const { user } = useAuth();
@@ -103,6 +176,12 @@ function IntentHandler() {
       const { intentType, rawData } = parsed;
       console.log('[IntentHandler] parsed intent', { intentType, rawData });
 
+      // Native bridge request from external PWA
+      if (intentType === 'native_bridge') {
+        await handleNativeRequest(String(rawData.url ?? ''), user?.id ?? null);
+        return;
+      }
+
       const rule = routing.resolveIntent(intentType, rawData);
       console.log('[IntentHandler] resolved rule', rule?.name ?? null);
 
@@ -126,7 +205,7 @@ function IntentHandler() {
         console.log('[IntentHandler] guest user — skipping pwa_apps fetch');
       }
 
-      const result = await executeIntent(intentType, rawData, rule, pwaApps);
+      const result = await executeIntent(intentType, rawData, rule, pwaApps, user?.id ?? null);
       console.log('[IntentHandler] executeIntent result', result);
     },
     [routing, user]
