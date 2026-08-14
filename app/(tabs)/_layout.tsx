@@ -28,7 +28,7 @@ const TABS = [
     name: '(apps)',
     route: '/(tabs)/(apps)' as const,
     icon: 'apps' as const,
-    label: 'Apps',
+    label: 'Destinations',
   },
   {
     name: '(settings)',

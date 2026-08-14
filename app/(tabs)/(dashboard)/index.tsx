@@ -31,6 +31,8 @@ import {
   Mail,
   Globe,
   MapPin,
+  Phone,
+  Share2,
 } from 'lucide-react-native';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -137,7 +139,7 @@ export default function DashboardScreen() {
           .eq('user_id', user.id)
           .eq('is_enabled', true)
           .not('dest_pwa_url', 'is', null)
-          .in('intent_type', ['email', 'browser', 'geo'])
+          .in('intent_type', ['email', 'browser', 'geo', 'tel', 'text'])
           .order('priority', { ascending: false }),
       ]);
 
@@ -185,6 +187,8 @@ export default function DashboardScreen() {
         { type: 'email',   label: 'Email',   icon: <Mail    size={13} color={COLORS.textSecondary} /> },
         { type: 'browser', label: 'Web',     icon: <Globe   size={13} color={COLORS.textSecondary} /> },
         { type: 'geo',     label: 'Maps',    icon: <MapPin  size={13} color={COLORS.textSecondary} /> },
+        { type: 'tel',     label: 'Phone',   icon: <Phone   size={13} color={COLORS.textSecondary} /> },
+        { type: 'text',    label: 'Share',   icon: <Share2  size={13} color={COLORS.textSecondary} /> },
       ];
 
       const statusRows: BridgeStatusRow[] = bridgeIntents.map(({ type, label, icon }) => {

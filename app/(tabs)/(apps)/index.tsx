@@ -267,7 +267,7 @@ export default function DestinationsScreen() {
 
   const handleConfigureDestination = useCallback((intentType: string) => {
     console.log('[Destinations] Configure destination pressed:', intentType);
-    router.push('/(tabs)/(apps)/pwa');
+    router.push(`/(tabs)/(apps)/configure?intentType=${intentType}`);
   }, [router]);
 
   const handleTestIntent = useCallback(() => {
@@ -480,7 +480,7 @@ export default function DestinationsScreen() {
                               fontFamily: 'SpaceGrotesk_500Medium',
                             }}
                           >
-                            Configure
+                            {isConfigured ? 'Edit' : 'Set up'}
                           </Text>
                         </AnimatedPressable>
                       </View>

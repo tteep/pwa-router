@@ -5,11 +5,10 @@ import {
   ScrollView,
   Switch,
   Alert,
-  Platform,
 } from 'react-native';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { COLORS } from '@/constants/AppColors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouting } from '@/contexts/RoutingContext';
@@ -39,14 +38,9 @@ import {
   ChevronRight,
   Shield,
   UserX,
-  Smartphone,
-  ExternalLink,
 } from 'lucide-react-native';
 import { Linking } from 'react-native';
 import Constants from 'expo-constants';
-import { ANDROID_ROLES, ANDROID_ROLE_LABELS } from '@/constants/AndroidRoles';
-import { checkRole, openDefaultAppsSettings, requestDefaultRole } from '@/modules/android-defaults';
-import { RoleStatus } from '@/modules/android-defaults';
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -152,8 +146,6 @@ function getRelativeSync(dateStr: string | null): string {
   return `${hrs}h ago`;
 }
 
-const ROLE_ENTRIES = Object.entries(ANDROID_ROLES) as [string, string][];
-
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -164,10 +156,6 @@ export default function SettingsScreen() {
   const [offlineMode, setOfflineModeState] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
-
-  // Role statuses: role string -> RoleStatus
-  const [roleStatuses, setRoleStatuses] = useState<Record<string, RoleStatus>>({});
-  const [requestingRole, setRequestingRole] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadPrefs() {
@@ -184,33 +172,6 @@ export default function SettingsScreen() {
   useEffect(() => {
     setLastSync(lastSyncedAt);
   }, [lastSyncedAt]);
-
-  const loadRoleStatuses = useCallback(async () => {
-    if (Platform.OS !== 'android') return;
-    console.log('[Settings] loadRoleStatuses');
-    try {
-      const results = await Promise.all(
-        ROLE_ENTRIES.map(async ([, roleValue]) => {
-          const status = await checkRole(roleValue);
-          return [roleValue, status] as [string, RoleStatus];
-        })
-      );
-      const map: Record<string, RoleStatus> = {};
-      results.forEach(([role, status]) => {
-        map[role] = status;
-      });
-      setRoleStatuses(map);
-      console.log('[Settings] roleStatuses loaded', map);
-    } catch (err) {
-      console.error('[Settings] loadRoleStatuses error', err);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadRoleStatuses();
-    }, [loadRoleStatuses])
-  );
 
   const handleBiometricToggle = useCallback(async (val: boolean) => {
     console.log('[Settings] biometric toggle:', val);
@@ -343,30 +304,6 @@ export default function SettingsScreen() {
     Linking.openURL('https://gatsbyrouter.app/privacy');
   }, []);
 
-  const handleRequestRole = useCallback(async (role: string) => {
-    console.log('[Settings] request role pressed:', role);
-    setRequestingRole(role);
-    try {
-      const result = await requestDefaultRole(role);
-      console.log('[Settings] requestDefaultRole result:', role, result);
-      // Refresh statuses after request
-      await loadRoleStatuses();
-    } catch (err) {
-      console.error('[Settings] requestDefaultRole error', err);
-    } finally {
-      setRequestingRole(null);
-    }
-  }, [loadRoleStatuses]);
-
-  const handleOpenDefaultAppsSettings = useCallback(async () => {
-    console.log('[Settings] open default apps settings pressed');
-    try {
-      await openDefaultAppsSettings();
-    } catch (err) {
-      console.error('[Settings] openDefaultAppsSettings error', err);
-    }
-  }, []);
-
   const syncLabel = getRelativeSync(lastSync);
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
   const userEmail = user?.email ?? 'Guest';
@@ -432,97 +369,6 @@ export default function SettingsScreen() {
         label="Sync interval"
         value="Every hour"
       />
-
-      {/* Default App Roles — Android only */}
-      {Platform.OS === 'android' && (
-        <>
-          <SectionHeader title="Default App Roles" />
-          {ROLE_ENTRIES.map(([, roleValue]) => {
-            const label = ANDROID_ROLE_LABELS[roleValue] ?? roleValue;
-            const status = roleStatuses[roleValue];
-            const isHeld = status?.isHeld ?? false;
-            const isRequesting = requestingRole === roleValue;
-            const statusText = isHeld ? 'Held by this app' : 'Not set';
-            const statusColor = isHeld ? COLORS.accent : COLORS.textTertiary;
-            return (
-              <View
-                key={roleValue}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: COLORS.surface,
-                  borderRadius: 10,
-                  paddingHorizontal: 14,
-                  paddingVertical: 13,
-                  marginBottom: 2,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  gap: 12,
-                }}
-              >
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
-                    backgroundColor: COLORS.surfaceSecondary,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Smartphone size={16} color={COLORS.primary} />
-                </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text
-                    style={{
-                      color: COLORS.text,
-                      fontSize: 14,
-                      fontFamily: 'SpaceGrotesk_500Medium',
-                    }}
-                  >
-                    {label}
-                  </Text>
-                  <Text
-                    style={{
-                      color: statusColor,
-                      fontSize: 12,
-                      fontFamily: 'SpaceGrotesk_400Regular',
-                    }}
-                  >
-                    {statusText}
-                  </Text>
-                </View>
-                <AnimatedPressable
-                  onPress={() => handleRequestRole(roleValue)}
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 7,
-                    backgroundColor: isHeld ? `${COLORS.accent}18` : `${COLORS.primary}18`,
-                    borderWidth: 1,
-                    borderColor: isHeld ? `${COLORS.accent}40` : `${COLORS.primary}40`,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: isHeld ? COLORS.accent : COLORS.primary,
-                      fontSize: 12,
-                      fontFamily: 'SpaceGrotesk_500Medium',
-                    }}
-                  >
-                    {isRequesting ? 'Requesting…' : isHeld ? 'Held' : 'Request'}
-                  </Text>
-                </AnimatedPressable>
-              </View>
-            );
-          })}
-          <SettingsRow
-            icon={<ExternalLink size={16} color={COLORS.textSecondary} />}
-            label="Open Default Apps Settings"
-            onPress={handleOpenDefaultAppsSettings}
-          />
-        </>
-      )}
 
       {/* Security */}
       <SectionHeader title="Security" />

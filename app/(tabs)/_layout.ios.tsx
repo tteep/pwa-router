@@ -14,7 +14,7 @@ export default function TabLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="(apps)">
         <Icon sf="square.grid.2x2.fill" />
-        <Label>Apps</Label>
+        <Label>Destinations</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="(settings)">
         <Icon sf="gearshape.fill" />
