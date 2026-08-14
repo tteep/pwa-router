@@ -29,6 +29,9 @@
         "USE_BIOMETRIC",
         "USE_FINGERPRINT"
       ],
+      "blockedPermissions": [
+        "android.permission.QUERY_ALL_PACKAGES"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",

@@ -26,6 +26,7 @@
     },
     "router": {
       "distribution": "internal",
+      "credentialsSource": "remote",
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease"
