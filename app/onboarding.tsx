@@ -576,6 +576,28 @@ export default function OnboardingScreen() {
                   )}
                 </View>
 
+                {/* Forgot password link — sign in only */}
+                {isSignIn && (
+                  <AnimatedPressable
+                    onPress={() => {
+                      console.log('[Onboarding] forgot password pressed');
+                      router.push('/reset-password');
+                    }}
+                    style={{ alignSelf: 'flex-end', marginBottom: 12 }}
+                  >
+                    <Text
+                      style={{
+                        color: COLORS.primary,
+                        fontSize: 13,
+                        fontFamily: 'SpaceGrotesk_500Medium',
+                        textAlign: 'right',
+                      }}
+                    >
+                      Forgot password?
+                    </Text>
+                  </AnimatedPressable>
+                )}
+
                 {/* Error box */}
                 {error !== '' && (
                   <View

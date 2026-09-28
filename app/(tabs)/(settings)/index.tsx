@@ -156,6 +156,7 @@ export default function SettingsScreen() {
   const [offlineMode, setOfflineModeState] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     async function loadPrefs() {
@@ -168,6 +169,26 @@ export default function SettingsScreen() {
     }
     loadPrefs();
   }, []);
+
+  useEffect(() => {
+    async function checkAdmin() {
+      if (!user) return;
+      console.log('[Settings] checking admin status for user:', user.id);
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', user.id)
+          .single();
+        const adminStatus = data?.is_admin === true;
+        console.log('[Settings] is_admin:', adminStatus);
+        setIsAdmin(adminStatus);
+      } catch (err) {
+        console.error('[Settings] admin check error:', err);
+      }
+    }
+    checkAdmin();
+  }, [user]);
 
   useEffect(() => {
     setLastSync(lastSyncedAt);
@@ -339,6 +360,16 @@ export default function SettingsScreen() {
         label={userEmail}
         value={user ? 'Signed in' : 'Guest'}
       />
+      {isAdmin && (
+        <SettingsRow
+          icon={<Shield size={16} color={COLORS.warning} />}
+          label="Admin Panel"
+          onPress={() => {
+            console.log('[Settings] admin panel pressed');
+            router.push('/(tabs)/(settings)/admin');
+          }}
+        />
+      )}
       {user && (
         <SettingsRow
           icon={<LogOut size={16} color={COLORS.danger} />}
