@@ -289,19 +289,17 @@ export default function OnboardingScreen() {
 
       throw anonError;
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Could not continue as guest. Please try again.';
       console.warn('[Onboarding] all auth methods failed, entering demo mode');
       // Step 3: Final fallback — skip auth entirely, enter demo/guest mode
       try {
         await setOnboardingComplete();
         router.replace('/(tabs)/(dashboard)');
-      } catch (navErr) {
-        const msg = err instanceof Error ? err.message : 'Could not continue as guest. Please try again.';
+      } catch {
         console.error('[Onboarding] guest fallback error:', msg);
         setError(msg);
         setLoading(false);
       }
-    } finally {
-      setLoading(false);
     }
   }, [router]);
 

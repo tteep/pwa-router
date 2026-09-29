@@ -277,7 +277,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Don't redirect until the initial session check has completed
     if (isLoading) return;
 
-    const inOnboarding = segments[0] === 'onboarding';
+    const inOnboarding = segments[0] === 'onboarding' || segments[0] === 'reset-password';
 
     console.log('[AuthGuard] session:', !!session, 'segments:', segments, 'isLoading:', isLoading);
 
@@ -354,6 +354,7 @@ export default function RootLayout() {
                       >
                         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
                         <Stack.Screen
                           name="test-intent"
                           options={{
@@ -400,6 +401,7 @@ export default function RootLayout() {
                     >
                       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                      <Stack.Screen name="reset-password" options={{ headerShown: false }} />
                       <Stack.Screen
                         name="test-intent"
                         options={{
