@@ -313,6 +313,22 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+
+  // Listen for Supabase PASSWORD_RECOVERY event fired when the deep link is opened
+  useEffect(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      console.log('[RootLayout] onAuthStateChange event:', event);
+      if (event === 'PASSWORD_RECOVERY') {
+        console.log('[RootLayout] PASSWORD_RECOVERY — navigating to reset-password');
+        router.replace('/reset-password');
+      }
+    });
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, [router]);
+
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     SpaceGrotesk_400Regular,
